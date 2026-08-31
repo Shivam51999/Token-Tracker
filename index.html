@@ -247,13 +247,29 @@ function defaultChannelTargets(){
 }
 
 // ---------- API ----------
+// Retries transient network failures (DNS blips, dropped connections) before giving up.
+// Does NOT retry application-level errors (bad data, server-side exceptions) — only
+// cases where fetch() itself never got a response at all.
+async function fetchWithRetry(url, opts, attempts = 3, delayMs = 900){
+  let lastErr;
+  for(let i = 0; i < attempts; i++){
+    try{
+      return await fetch(url, opts);
+    }catch(err){
+      lastErr = err;
+      if(i < attempts - 1) await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw new Error(`Network request failed after ${attempts} attempts: ${lastErr.message || lastErr}`);
+}
+
 async function apiGet(){
-  const res = await fetch(APPS_SCRIPT_URL, { method: 'GET' });
+  const res = await fetchWithRetry(APPS_SCRIPT_URL, { method: 'GET' });
   if(!res.ok) throw new Error('GET failed: ' + res.status);
   return res.json();
 }
 async function apiPost(payload){
-  const res = await fetch(APPS_SCRIPT_URL, {
+  const res = await fetchWithRetry(APPS_SCRIPT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(payload)
@@ -284,8 +300,15 @@ async function loadState(){
 
 async function withSaving(fn){
   saving = true; render();
-  try{ await fn(); }
-  catch(e){ alert('Could not save to the sheet: ' + (e.message||e)); }
+  try{
+    await fn();
+  }catch(e){
+    const tryAgain = confirm(
+      `Could not save to the sheet after 3 attempts:\n${e.message||e}\n\n` +
+      `Your entry is still filled in — nothing was lost. Try again now?`
+    );
+    if(tryAgain){ saving = false; return withSaving(fn); }
+  }
   saving = false; render();
 }
 
