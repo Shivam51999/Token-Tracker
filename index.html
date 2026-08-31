@@ -284,21 +284,52 @@ async function loadState(){
   loading = true; loadError = null; render();
   try{
     const data = await apiGet();
-    // Normalize numbers defensively: a blank/missing cell in the sheet should
-    // always read as 0 here, never surface as NaN/undefined on screen.
-    state.projects = (data.projects || []).map(p => ({
-      ...p,
-      targetWalkins: Number(p.targetWalkins) || 0,
-      targetTokens: Number(p.targetTokens) || 0,
-      channelTargets: (p.channelTargets || []).map(c => ({
-        channel: c.channel,
-        targetWalkins: Number(c.targetWalkins) || 0,
-        targetTokens: Number(c.targetTokens) || 0
-      }))
+
+    // --- Adapter layer: your live backend uses its own shapes (targets as
+    // per-channel JSON objects, walk-ins/attendance nested per entry). Convert
+    // to this app's internal shape here, once, so every other function in this
+    // file can keep working exactly as already tested. ---
+
+    state.projects = (data.projects || []).map(p => {
+      const wByCh = p.targetWalkinsByChannel || {};
+      const tByCh = p.targetTokensByChannel || {};
+      const channelTargets = CHANNELS.map(ch => ({
+        channel: ch,
+        targetWalkins: Number(wByCh[ch]) || 0,
+        targetTokens: Number(tByCh[ch]) || 0
+      }));
+      return {
+        id: p.id, name: p.name, launchDate: p.launchDate, targetDate: p.targetDate,
+        channelTargets,
+        targetWalkins: channelTargets.reduce((s,c)=>s+c.targetWalkins, 0),
+        targetTokens: channelTargets.reduce((s,c)=>s+c.targetTokens, 0)
+      };
+    });
+
+    state.entries = (data.entries || []).map(e => {
+      const walkinRows = (e.walkins || []).map(w => ({ channel: w.channel, count: Number(w.count) || 0 }));
+      return {
+        id: e.id, projectId: e.projectId, date: e.date,
+        walkinRows,
+        walkins: walkinRows.reduce((s,w)=>s+w.count, 0),
+        tokens: (e.tokens || []).map(t => ({ ...t, count: Number(t.count) || 0 })),
+        attendance: e.attendance || []
+      };
+    });
+
+    state.team = (data.team || []).map(t => ({
+      id: t.id, name: t.name, salary: Number(t.salary) || 0, incentivePerToken: Number(t.incentivePerToken) || 0
     }));
-    state.entries = data.entries || [];
-    state.team = data.team || [];
-    state.customerAttended = data.customerAttended || [];
+
+    // Flatten each entry's nested attendance into the lookup shape teamPerformance() expects.
+    state.customerAttended = [];
+    state.entries.forEach(e => {
+      (e.attendance || []).forEach(a => {
+        if(!a.salesExecutive) return;
+        state.customerAttended.push({ projectId: e.projectId, date: e.date, teamMemberName: a.salesExecutive, count: Number(a.customersAttended) || 0 });
+      });
+    });
+
     if(!state.activeProjectId || !state.projects.find(p=>p.id===state.activeProjectId)){
       state.activeProjectId = state.projects[0] ? state.projects[0].id : null;
     }
@@ -801,8 +832,12 @@ function renderEntryForm(proj){
     const walkinRows = draftWalkinRows.map(r=>({...r, count:parseInt(r.count||0,10)})).filter(r=>r.count>0);
     const customerAttended = draftCustomerRows.map(r=>({...r, count:parseInt(r.count||0,10)})).filter(r=>r.teamMemberName && r.count>0);
     const tokens = draftTokenRows.map(r => ({...r, count: parseInt(r.count||0,10)})).filter(r => r.count > 0);
+    // Adapt to the backend's field names: walkins (not walkinRows), and
+    // attendance uses salesExecutive/customersAttended (not teamMemberName/count).
+    const walkins = walkinRows;
+    const attendance = customerAttended.map(c => ({ salesExecutive: c.teamMemberName, customersAttended: c.count }));
     withSaving(async () => {
-      await apiPost({ action: 'saveEntry', entry: { projectId: proj.id, date, walkinRows, customerAttended, tokens } });
+      await apiPost({ action: 'saveEntry', entry: { projectId: proj.id, date, walkins, tokens, attendance } });
       resetDraftEntry();
       await loadState();
     });
@@ -1220,11 +1255,20 @@ function renderModal(){
         targetTokens: parseInt((tIn && tIn.value) || '0', 10)
       };
     });
+    // Adapt to the backend's shape: per-channel targets as two JSON objects
+    // keyed by channel name, not an array.
+    const targetWalkinsByChannel = {};
+    const targetTokensByChannel = {};
+    freshTargets.forEach(c => {
+      targetWalkinsByChannel[c.channel] = c.targetWalkins;
+      targetTokensByChannel[c.channel] = c.targetTokens;
+    });
     const payload = {
       name,
       launchDate: document.getElementById('mLaunch').value,
       targetDate: document.getElementById('mTarget').value,
-      channelTargets: freshTargets
+      targetWalkinsByChannel,
+      targetTokensByChannel
     };
     const willBeNew = !d.id;
     modal = null;
