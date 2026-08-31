@@ -1205,20 +1205,26 @@ function renderModal(){
   `;
   document.body.appendChild(overlay);
   document.getElementById('mCancel').onclick = () => { modal = null; render(); };
-  overlay.querySelectorAll('#mChannelRows input').forEach(inp => {
-    inp.onchange = (e) => {
-      const i = +e.target.dataset.ci, f = e.target.dataset.cf;
-      ct[i][f] = parseInt(e.target.value||'0',10);
-    };
-  });
   document.getElementById('mSave').onclick = () => {
     const name = document.getElementById('mName').value.trim();
     if(!name){ alert('Give the launch a name.'); return; }
+    // Read every channel-target box directly from the DOM right now, rather than
+    // trusting accumulated onchange events — guarantees whatever's on screen is what saves,
+    // even if the last field edited never lost focus before this click.
+    const freshTargets = ct.map((c, i) => {
+      const wIn = overlay.querySelector(`input[data-ci="${i}"][data-cf="targetWalkins"]`);
+      const tIn = overlay.querySelector(`input[data-ci="${i}"][data-cf="targetTokens"]`);
+      return {
+        channel: c.channel,
+        targetWalkins: parseInt((wIn && wIn.value) || '0', 10),
+        targetTokens: parseInt((tIn && tIn.value) || '0', 10)
+      };
+    });
     const payload = {
       name,
       launchDate: document.getElementById('mLaunch').value,
       targetDate: document.getElementById('mTarget').value,
-      channelTargets: ct
+      channelTargets: freshTargets
     };
     const willBeNew = !d.id;
     modal = null;
