@@ -148,10 +148,10 @@
 </style>
 </head>
 <body>
-<div id=""></div>
+<div id="app"></div>
 
 <script>
-// Paste the s Script Web App URL here after deployment (ends in /exec)
+// Paste the Apps Script Web App URL here after deployment (ends in /exec)
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbySTP4F2NBviqwWjx7Uq4BLS24edcWUpUf8503CKBfyG0nBBGk0pmibhzrVztubt9uv/exec';
 
 const UNIT_TYPES = ['1BHK','1.5BHK','2BHK','2.5BHK','3BHK','3.5BHK','4BHK','Shop','Office'];
@@ -262,7 +262,14 @@ function breakdown(entries){
 
 // ---------- rendering ----------
 function render(){
-  const app = document.getElementById('app');
+  let app = document.getElementById('app');
+  if(!app){
+    // Defensive fallback: the container div was missing from the page for some reason
+    // (stale deploy, a stray character before it, etc.) — create it so the app still loads.
+    app = document.createElement('div');
+    app.id = 'app';
+    document.body.appendChild(app);
+  }
 
   if(APPS_SCRIPT_URL.indexOf('PASTE_YOUR') === 0){
     app.innerHTML = `<div class="panel" style="margin-top:20px;"><div class="empty">
@@ -614,8 +621,15 @@ function escapeHtml(s){
   return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
-loadState();
-window.addEventListener('resize', () => { if(activeProject()) render(); });
+function boot(){
+  loadState();
+  window.addEventListener('resize', () => { if(activeProject()) render(); });
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
 </script>
 </body>
 </html>
