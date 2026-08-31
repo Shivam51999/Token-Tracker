@@ -75,9 +75,13 @@
   .hero-left .meta{color:var(--muted); font-size:13px; margin-bottom:18px;}
   .countdown{display:flex; gap:22px; flex-wrap:wrap;}
   .cd-block{display:flex; flex-direction:column;}
-  .cd-num{font-size:44px; font-weight:600; line-height:1; color:var(--amber);}
+  .cd-num{font-size:44px; font-weight:600; line-height:1; color:var(--amber); text-shadow:0 0 18px rgba(232,163,61,.35);}
+  .cd-num.ticking{font-size:38px; letter-spacing:1px;}
+  .cd-num.ticking .seg-sep{color:var(--muted-2); font-weight:400; margin:0 1px;}
+  .cd-num.ticking .seg-unit{font-size:14px; color:var(--muted-2); font-weight:600; margin-left:3px;}
   .cd-num.behind{color:var(--red);}
   .cd-label{font-size:11px; color:var(--muted-2); margin-top:6px; letter-spacing:.3px;}
+  .cd-sub{font-size:11px; color:var(--amber); margin-top:5px; opacity:.85;}
   .pace-note{margin-top:16px; font-size:13px; color:var(--muted); line-height:1.5;}
   .pace-note b{color:var(--text); font-weight:700;}
   .pace-note .ok{color:var(--green); font-weight:700;}
@@ -90,8 +94,15 @@
   .tgt-row .tgt-top .nums .have{color:var(--text); font-weight:700;}
   .tgt-row .tgt-top .nums .of{color:var(--muted-2);}
   .bar{height:8px; background:var(--line-soft); border-radius:4px; overflow:hidden;}
-  .bar > div{height:100%; background:var(--green); border-radius:4px;}
+  .bar > div{height:100%; background:var(--green); border-radius:4px; transition:width .7s cubic-bezier(.22,.9,.35,1);}
   .bar > div.behind{background:var(--amber);}
+  .sync{display:flex; align-items:center; gap:6px;}
+  .live-dot{width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0;}
+  .live-dot.pulsing{animation:pulseDot 1.8s ease-in-out infinite;}
+  @keyframes pulseDot{ 0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(79,178,134,.5);} 50%{opacity:.6; box-shadow:0 0 0 4px rgba(79,178,134,0);} }
+  .error-banner{background:#2B1414; border:1px solid var(--red); color:#F5B8B3; border-radius:9px; padding:14px 16px; margin-bottom:18px; font-size:13px; line-height:1.5;}
+  .error-banner b{color:#fff;}
+  .error-banner .mono{display:block; margin-top:6px; font-size:11.5px; color:#E8A8A3; word-break:break-all;}
   .value-note{font-size:12px; color:var(--muted-2); margin-top:2px;}
 
   /* ---- section shell ---- */
@@ -203,6 +214,8 @@ let loadError = null;
 let saving = false;
 let view = 'dashboard'; // 'dashboard' | 'team'
 let charts = {}; // keep Chart.js instances so we can destroy before re-render
+let pageError = null;   // any uncaught error, shown directly in the UI (no DevTools needed)
+let tickHandle = null;  // live countdown interval
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
@@ -321,13 +334,21 @@ function teamPerformance(entries){
   const map = {};
   entries.forEach(e => e.tokens.forEach(t => {
     const name = (t.salesExecutive || 'Unassigned').trim() || 'Unassigned';
-    if(!map[name]) map[name] = { name, tokens:0, value:0, silver:0, gold:0, platinum:0 };
+    if(!map[name]) map[name] = { name, tokens:0, value:0, silver:0, gold:0, platinum:0, activeDates:new Set() };
     map[name].tokens += t.count;
     map[name].value += t.count * tokenTypeInfo(t.tokenType).amount;
+    map[name].activeDates.add(e.date);
     const k = tokenTypeInfo(t.tokenType).key;
     map[name][k] = (map[name][k]||0) + t.count;
   }));
-  return Object.values(map).sort((a,b)=> b.tokens - a.tokens);
+  const totalTokens = Object.values(map).reduce((s,r)=>s+r.tokens,0);
+  return Object.values(map).map(r => ({
+    ...r,
+    activeDays: r.activeDates.size,
+    tokensPerActiveDay: r.activeDates.size ? r.tokens / r.activeDates.size : 0,
+    valuePerToken: r.tokens ? r.value / r.tokens : 0,
+    shareOfTeam: totalTokens ? (r.tokens / totalTokens * 100) : 0
+  })).sort((a,b)=> b.tokens - a.tokens);
 }
 function allExecNames(){
   const set = new Set();
@@ -341,7 +362,33 @@ function destroyCharts(){
   charts = {};
 }
 
+// Public entry point: never lets an exception pass silently. If anything inside
+// throws, the error is shown directly on the page instead of only in DevTools.
 function render(){
+  stopLiveClock();
+  try{
+    renderInner();
+    if(pageError) injectErrorBanner();
+  }catch(err){
+    pageError = (err && err.message) ? err.message : String(err);
+    console.error(err);
+    try{ injectErrorBanner(); }catch(e2){ /* nothing more we can safely do */ }
+  }
+}
+
+function injectErrorBanner(){
+  const bodyEl = document.getElementById('body');
+  if(!bodyEl) return;
+  if(document.getElementById('pageErrorBanner')) return; // already showing
+  const div = document.createElement('div');
+  div.id = 'pageErrorBanner';
+  div.className = 'error-banner';
+  div.innerHTML = `<b>Something broke while rendering.</b> Screenshot this box and send it over — it tells us exactly what to fix. <span class="link-btn" id="dismissError" style="display:inline;">dismiss</span><span class="mono">${escapeHtml(pageError)}</span>`;
+  bodyEl.prepend(div);
+  document.getElementById('dismissError').onclick = () => { pageError = null; render(); };
+}
+
+function renderInner(){
   let app = document.getElementById('app');
   if(!app){
     app = document.createElement('div');
@@ -368,10 +415,10 @@ function render(){
   `;
 
   const syncEl = document.getElementById('syncStatus');
-  if(loading) syncEl.textContent = 'Loading from sheet…';
-  else if(saving) syncEl.textContent = 'Saving…';
-  else if(loadError) syncEl.innerHTML = `<span style="color:var(--red)">Couldn't reach the sheet: ${escapeHtml(loadError)}</span>`;
-  else syncEl.textContent = 'Synced';
+  if(loading) syncEl.innerHTML = `<span class="live-dot" style="background:var(--muted-2)"></span>Loading from sheet…`;
+  else if(saving) syncEl.innerHTML = `<span class="live-dot" style="background:var(--amber)"></span>Saving…`;
+  else if(loadError) syncEl.innerHTML = `<span class="live-dot" style="background:var(--red)"></span><span style="color:var(--red)">Couldn't reach the sheet: ${escapeHtml(loadError)}</span>`;
+  else syncEl.innerHTML = `<span class="live-dot pulsing"></span>Synced`;
 
   document.querySelectorAll('#viewToggle button').forEach(b=>{
     b.onclick = () => { view = b.dataset.v; render(); };
@@ -394,6 +441,26 @@ function render(){
   else renderDashboard(proj);
 
   syncOverlay();
+}
+
+function startLiveClock(){
+  stopLiveClock();
+  const el = document.getElementById('liveClock');
+  if(!el) return;
+  function tick(){
+    const now = new Date();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    let diff = Math.max(0, endOfToday - now);
+    const h = Math.floor(diff/3600000); diff -= h*3600000;
+    const mi = Math.floor(diff/60000); diff -= mi*60000;
+    const s = Math.floor(diff/1000);
+    el.textContent = `${String(h).padStart(2,'0')}h ${String(mi).padStart(2,'0')}m ${String(s).padStart(2,'0')}s left today`;
+  }
+  tick();
+  tickHandle = setInterval(tick, 1000);
+}
+function stopLiveClock(){
+  if(tickHandle){ clearInterval(tickHandle); tickHandle = null; }
 }
 
 function syncOverlay(){
@@ -442,6 +509,7 @@ function renderDashboard(proj){
           <div class="cd-block">
             <div class="cd-num mono ${m.daysRemaining < 0 ? 'behind' : ''}">${m.daysRemaining >= 0 ? m.daysRemaining : 0}</div>
             <div class="cd-label">DAYS TO TARGET</div>
+            <div class="cd-sub mono" id="liveClock"></div>
           </div>
           <div class="cd-block">
             <div class="cd-num mono">${Math.round(m.reqWalkinsPerDay)}</div>
@@ -527,29 +595,48 @@ function renderDashboard(proj){
 
   renderEntryForm(proj);
   renderLogList(m.entries, proj.id);
-  renderDailyChart(m.entries);
-  renderTokenMixChart(typeRows);
-  renderChannelChart(channelRows);
+  safely(() => renderDailyChart(m.entries));
+  safely(() => renderTokenMixChart(typeRows));
+  safely(() => renderChannelChart(channelRows));
   renderBreakdownTable(detailRows);
+  startLiveClock();
+}
+
+// Runs fn, and if it throws, records the error for the banner without stopping
+// the rest of the dashboard (buttons, forms, other charts) from rendering.
+function safely(fn){
+  try{ fn(); }
+  catch(err){ pageError = (err && err.message) ? err.message : String(err); console.error(err); }
 }
 
 let draftTokenRows = [{ unitType: UNIT_TYPES[0], channel: CHANNELS[0], tokenType: TOKEN_TYPES[0].name, salesExecutive:'', count: 1 }];
+let draftDate = null;   // non-null while editing an existing day's entry
+let draftWalkins = 0;
 
 function renderEntryForm(proj){
   const el = document.getElementById('entryForm');
   const execOptions = allExecNames().map(n=>`<option value="${escapeHtml(n)}">`).join('');
+  const editing = !!draftDate;
   el.innerHTML = `
     <datalist id="execList">${execOptions}</datalist>
+    ${editing ? `<div class="sub-line" style="color:var(--amber)">Editing ${fmtDate(draftDate)} — <span class="link-btn" id="cancelEdit" style="display:inline;color:var(--muted)">cancel</span></div>` : ''}
     <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" id="fDate" value="${todayISO()}"></div>
-      <div class="field"><label>Walk-ins</label><input type="number" id="fWalkins" min="0" value="0"></div>
+      <div class="field"><label>Date</label><input type="date" id="fDate" value="${draftDate || todayISO()}"></div>
+      <div class="field"><label>Walk-ins</label><input type="number" id="fWalkins" min="0" value="${draftWalkins}"></div>
     </div>
     <div class="token-rows" id="tokenRows"></div>
     <button class="link-btn" id="addTokenRow">+ add token type</button>
     <br>
-    <button class="primary-btn" id="saveEntry" ${saving?'disabled':''}>${saving?'Saving…':"Save today's entry"}</button>
+    <button class="primary-btn" id="saveEntry" ${saving?'disabled':''}>${saving?'Saving…': editing ? 'Save changes' : "Save today's entry"}</button>
   `;
   renderTokenRows();
+  if(editing){
+    document.getElementById('cancelEdit').onclick = () => {
+      draftDate = null; draftWalkins = 0;
+      draftTokenRows = [{ unitType: UNIT_TYPES[0], channel: CHANNELS[0], tokenType: TOKEN_TYPES[0].name, salesExecutive:'', count: 1 }];
+      render();
+    };
+  }
   document.getElementById('addTokenRow').onclick = () => {
     draftTokenRows.push({ unitType: UNIT_TYPES[0], channel: CHANNELS[0], tokenType: TOKEN_TYPES[0].name, salesExecutive:'', count: 1 });
     renderTokenRows();
@@ -562,6 +649,7 @@ function renderEntryForm(proj){
       .filter(r => r.count > 0);
     withSaving(async () => {
       await apiPost({ action: 'saveEntry', entry: { projectId: proj.id, date, walkins, tokens } });
+      draftDate = null; draftWalkins = 0;
       draftTokenRows = [{ unitType: UNIT_TYPES[0], channel: CHANNELS[0], tokenType: TOKEN_TYPES[0].name, salesExecutive:'', count: 1 }];
       await loadState();
     });
@@ -623,10 +711,25 @@ function renderLogList(entries, projectId){
           <span class="n">${e.walkins}</span> walk-ins &nbsp;·&nbsp; <span class="n">${tCount}</span> tokens
           <div class="tags">${tags}</div>
         </div>
+        <button class="link-btn" data-edit="${e.id}" style="font-size:12px;">edit</button>
         <button class="del" data-id="${e.id}">×</button>
       </div>
     `;
   }).join('');
+  el.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.onclick = (ev) => {
+      const id = ev.target.dataset.edit;
+      const entry = entries.find(e => e.id === id);
+      if(!entry) return;
+      draftDate = entry.date;
+      draftWalkins = entry.walkins;
+      draftTokenRows = entry.tokens.length
+        ? entry.tokens.map(t => ({...t}))
+        : [{ unitType: UNIT_TYPES[0], channel: CHANNELS[0], tokenType: TOKEN_TYPES[0].name, salesExecutive:'', count: 1 }];
+      render();
+      document.getElementById('entryForm').scrollIntoView({ behavior:'smooth', block:'center' });
+    };
+  });
   el.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = (ev) => {
       const id = ev.target.dataset.id;
@@ -724,6 +827,10 @@ function renderTeamView(proj){
   const body = document.getElementById('body');
 
   body.innerHTML = `
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>How to read this</h3>
+      <div class="sub-line" style="margin-bottom:0;">No salary or per-person walk-in data is logged, so this isn't cost-based ROI or a true conversion ratio — it's built from what's actually captured: tokens closed, on which days, at what tier. <b style="color:var(--text)">Tokens/active day</b> shows productivity when they're working; <b style="color:var(--text)">avg value/token</b> shows whether they're closing Silver or upselling into Gold/Platinum.</div>
+    </div>
     <div class="grid2">
       <div class="panel">
         <h3>Team leaderboard <span class="cnt">${escapeHtml(proj.name)} — tokens closed</span></h3>
@@ -732,7 +839,7 @@ function renderTeamView(proj){
       </div>
       <div class="panel">
         <h3>Executive breakdown <span class="cnt">${team.length} contributor${team.length===1?'':'s'}</span></h3>
-        <div id="teamTable"></div>
+        <div id="teamTable" style="overflow-x:auto;"></div>
       </div>
     </div>
   `;
@@ -761,13 +868,21 @@ function renderTeamView(proj){
   }
   tableEl.innerHTML = `
     <table>
-      <thead><tr><th>Exec</th><th style="text-align:right">Tokens</th><th style="text-align:right">Value</th><th style="text-align:right">S/G/P</th></tr></thead>
+      <thead><tr>
+        <th>Exec</th><th style="text-align:right">Tokens</th><th style="text-align:right">Value</th>
+        <th style="text-align:right">Active days</th><th style="text-align:right">Tokens/active day</th>
+        <th style="text-align:right">Avg value/token</th><th style="text-align:right">Share</th><th style="text-align:right">S/G/P</th>
+      </tr></thead>
       <tbody>
         ${team.map((t,i) => `
           <tr>
             <td><span class="rank ${i===0?'top':''}">${i+1}</span>${escapeHtml(t.name)}</td>
             <td class="n">${t.tokens}</td>
             <td class="right">${fmtINR(t.value)}</td>
+            <td class="right">${t.activeDays}</td>
+            <td class="right mono">${t.tokensPerActiveDay.toFixed(2)}</td>
+            <td class="right">${fmtINR(t.valuePerToken)}</td>
+            <td class="right">${t.shareOfTeam.toFixed(0)}%</td>
             <td class="right mono">${t.silver||0}/${t.gold||0}/${t.platinum||0}</td>
           </tr>`).join('')}
       </tbody>
@@ -819,6 +934,16 @@ function renderModal(){
 }
 
 function boot(){
+  window.onerror = (msg, src, line, col, err) => {
+    pageError = err && err.message ? err.message : String(msg);
+    console.error(err || msg);
+    render();
+  };
+  window.addEventListener('unhandledrejection', (e) => {
+    pageError = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+    console.error(e.reason);
+    render();
+  });
   loadState();
   window.addEventListener('resize', () => { if(activeProject()) render(); });
 }
