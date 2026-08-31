@@ -284,7 +284,18 @@ async function loadState(){
   loading = true; loadError = null; render();
   try{
     const data = await apiGet();
-    state.projects = data.projects || [];
+    // Normalize numbers defensively: a blank/missing cell in the sheet should
+    // always read as 0 here, never surface as NaN/undefined on screen.
+    state.projects = (data.projects || []).map(p => ({
+      ...p,
+      targetWalkins: Number(p.targetWalkins) || 0,
+      targetTokens: Number(p.targetTokens) || 0,
+      channelTargets: (p.channelTargets || []).map(c => ({
+        channel: c.channel,
+        targetWalkins: Number(c.targetWalkins) || 0,
+        targetTokens: Number(c.targetTokens) || 0
+      }))
+    }));
     state.entries = data.entries || [];
     state.team = data.team || [];
     state.customerAttended = data.customerAttended || [];
