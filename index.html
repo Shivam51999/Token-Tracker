@@ -304,10 +304,18 @@ function render(){
   renderRail();
   if(!proj){
     document.getElementById('body').innerHTML = `<div class="panel"><div class="empty">No launches yet. Add a project to start tracking.</div></div>`;
-    if(modal) renderModal();
+    syncOverlay();
     return;
   }
   renderBody(proj);
+  syncOverlay();
+}
+
+// Ensures the modal overlay DOM matches current `modal` state — removes any stale
+// overlay left over from a previous open/close, then draws a fresh one if needed.
+function syncOverlay(){
+  const existing = document.querySelector('.overlay');
+  if(existing) existing.remove();
   if(modal) renderModal();
 }
 
@@ -574,8 +582,6 @@ function renderBreakdown(rows){
 }
 
 function renderModal(){
-  const existing = document.querySelector('.overlay');
-  if(existing) existing.remove();
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   const d = modal.data;
