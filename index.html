@@ -359,6 +359,8 @@ const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','S
 
 const DEFAULT_PRICES = { '2BHK':6500000, '2.5BHK':7800000, '3BHK':9500000, '3.5BHK':11500000, '4BHK':15000000 };
 const DEFAULT_ASSUMPTIONS = { tokenToBooking: 65 };   // % of tokens that become bookings
+const STD_TOKEN_INCENTIVE   = 1000;   // paid per token collected
+const STD_BOOKING_INCENTIVE = 5000;   // paid per booking, post base target
 
 function tokenTypeInfo(name){
   const hit = TOKEN_TYPES.find(t => t.name === name);
@@ -476,7 +478,9 @@ async function loadState(){
     });
 
     state.team = (data.team || []).map(t => ({
-      id:t.id, name:t.name, salary:num(t.salary), incentivePerToken:num(t.incentivePerToken)
+      id:t.id, name:t.name, salary:num(t.salary),
+      incentivePerToken:num(t.incentivePerToken),
+      incentivePerBooking:num(t.incentivePerBooking)
     }));
 
     state.customerAttended = [];
@@ -652,7 +656,7 @@ function typeStats(entries){
   return rows;
 }
 
-function teamPerformance(entries, projectId){
+function teamPerformance(entries, projectId, convRate){
   const map = {};
   const seed = n => { if(!map[n]) map[n] = { name:n, tokens:0, value:0, silver:0, gold:0, platinum:0, dates:new Set(), customers:0 }; return map[n]; };
   entries.forEach(e => e.tokens.forEach(t => {
@@ -669,14 +673,23 @@ function teamPerformance(entries, projectId){
   return Object.values(map).map(r => {
     const roster = state.team.find(m => m.name === r.name);
     const ipt = roster ? roster.incentivePerToken : 0;
+    const ipb = roster ? roster.incentivePerBooking : 0;
+    // Bookings aren't logged in this tool, so booking pay is a projection off the
+    // token-to-booking assumption, not money already earned. Kept in its own column.
+    const projBookings = r.tokens * num(convRate);
+    const tokenPay = ipt * r.tokens;
+    const bookingPay = projBookings * ipb;
     return { ...r,
       activeDays: r.dates.size,
       tokensPerDay: r.dates.size ? r.tokens/r.dates.size : 0,
       valuePerToken: r.tokens ? r.value/r.tokens : 0,
       share: pctOf(r.tokens, totalTokens),
       conversion: r.customers ? pctOf(r.tokens, r.customers) : null,
-      incentiveCost: ipt * r.tokens,
-      costPerToken: r.tokens ? ipt : 0,
+      incentiveCost: tokenPay,
+      bookingIncentive: bookingPay,
+      projBookings,
+      totalIncentive: tokenPay + bookingPay,
+      ratesSet: !!roster && (ipt > 0 || ipb > 0),
       salary: roster ? roster.salary : null,
       onRoster: !!roster
     };
@@ -959,7 +972,7 @@ function renderShell(){
   const ch    = channelStats(proj, m.entries);
   const wd    = weekdayStats(m.entries);
   const units = unitStats(proj, m.entries);
-  const team  = teamPerformance(m.entries, proj.id);
+  const team  = teamPerformance(m.entries, proj.id, m.convRate);
 
   if(view === 'command')      renderCommand(proj, m, ch, wd, units, team);
   else if(view === 'channels') renderChannels(proj, m, ch, units);
@@ -1085,6 +1098,7 @@ function renderCommand(proj, m, ch, wd, units, team){
   const flags     = dataQuality(proj, m);
   const insights  = buildInsights(proj, m, ch, wd, units, team).concat(flags).slice(0,7);
   const incentiveTotal = team.reduce((s,t) => s + t.incentiveCost, 0);
+  const bookingTotal = team.reduce((s,t) => s + t.bookingIncentive, 0);
 
   const health = launchHealth(proj, m, ch);
   const sp = dailySeries(m, 21);
@@ -1161,7 +1175,7 @@ function renderCommand(proj, m, ch, wd, units, team){
           <div>
             <div class="rail-top"><span class="nm">Walk-ins</span><span class="nums"><span class="have">${m.totalWalkins}</span> <span class="of">of ${proj.targetWalkins}</span></span></div>
             <div class="track"><div class="fill ${walkPct<expTick?'behind':''}" style="width:${walkPct}%"></div><div class="tick" style="left:${expTick}%"></div></div>
-            <div class="rail-foot">${m.loggedDays} day${m.loggedDays===1?'':'s'} logged out of ${m.daysElapsed} elapsed. Incentive committed so far: <b style="color:var(--text)">${fmtMoney(incentiveTotal)}</b>.</div>
+            <div class="rail-foot">${m.loggedDays} day${m.loggedDays===1?'':'s'} logged out of ${m.daysElapsed} elapsed. Token incentive earned: <b style="color:var(--text)">${fmtMoney(incentiveTotal)}</b>, plus about ${fmtMoney(bookingTotal)} in booking incentive if these tokens convert.</div>
           </div>
         </div>
       </div>
@@ -1421,17 +1435,27 @@ function renderPattern(proj, m, wd){
 /* --------------------------------------------------------------- team view */
 function renderTeam(proj, m, team){
   const body = document.getElementById('body');
-  const totalIncentive = team.reduce((s,t)=>s+t.incentiveCost,0);
+  const tokenPay = team.reduce((s,t)=>s+t.incentiveCost,0);
+  const bookingPay = team.reduce((s,t)=>s+t.bookingIncentive,0);
+  const totalIncentive = tokenPay + bookingPay;
+  const projBookings = team.reduce((s,t)=>s+t.projBookings,0);
+  const missingRates = team.filter(t => t.onRoster && !t.ratesSet).length;
   const closers = team.filter(t => t.customers > 0);
   const avgConv = closers.length ? closers.reduce((s,t)=>s+(t.conversion||0),0)/closers.length : 0;
 
   body.innerHTML = `
     ${slimVerdict(proj, m)}
-    <div class="ledger">
-      <div class="kpi"><div class="k-label">Contributors</div><div class="k-val mono">${team.length}</div><div class="k-sub">${team.filter(t=>t.tokens>0).length} closed at least one token</div></div>
-      <div class="kpi"><div class="k-label">Average personal conversion</div><div class="k-val mono">${avgConv.toFixed(1)}%</div><div class="k-sub">Tokens over customers each person actually handled</div></div>
-      <div class="kpi"><div class="k-label">Incentive committed</div><div class="k-val mono sm">${fmtMoney(totalIncentive)}</div><div class="k-sub">${m.totalTokens ? fmtINR(totalIncentive/m.totalTokens)+' per token' : 'No tokens yet'}</div></div>
-      <div class="kpi"><div class="k-label">Cost against money collected</div><div class="k-val mono">${m.totalValue ? pctOf(totalIncentive,m.totalValue).toFixed(1)+'%' : '—'}</div><div class="k-sub">Incentive as a share of token value banked</div></div>
+    <div class="kpis">
+      <div class="kcard"><div class="lbl">Contributors</div><div class="big c-cyan">${team.length}</div>
+        <div class="foot">${team.filter(t=>t.tokens>0).length} closed at least one token${missingRates?`, <b>${missingRates}</b> on ₹0 rates`:''}</div><div class="spark"></div></div>
+      <div class="kcard"><div class="lbl">Average personal conversion</div><div class="big c-amber">${avgConv.toFixed(1)}%</div>
+        <div class="foot">Tokens over customers each person actually handled</div><div class="spark"></div></div>
+      <div class="kcard"><div class="lbl">Token incentive earned</div><div class="big c-mint">${fmtMoney(tokenPay)}</div>
+        <div class="foot">Payable on tokens already collected</div><div class="spark"></div></div>
+      <div class="kcard"><div class="lbl">Booking incentive projected</div><div class="big c-violet">${fmtMoney(bookingPay)}</div>
+        <div class="foot"><b>${projBookings.toFixed(0)}</b> bookings expected at ${Math.round(m.convRate*100)}% conversion</div><div class="spark"></div></div>
+      <div class="kcard"><div class="lbl">Total against money collected</div><div class="big ${pctOf(totalIncentive,m.totalValue)>40?'c-coral':'c-amber'}">${m.totalValue ? pctOf(totalIncentive,m.totalValue).toFixed(0)+'%' : '—'}</div>
+        <div class="foot">${fmtMoney(totalIncentive)} of incentive against ${fmtMoney(m.totalValue)} banked</div><div class="spark"></div></div>
     </div>
 
     <div class="grid2">
@@ -1445,7 +1469,7 @@ function renderTeam(proj, m, team){
         <p class="p-note" style="margin-bottom:14px;">Salary and incentive rates come from the Roster tab — nothing is re-entered here.</p>
         <div class="ins">
           <div class="ins-item"><div class="ins-tag win"></div><div class="ins-body"><h4>Conversion</h4><p>Tokens divided by the customers that person personally attended. It is a real individual number, not a share of team footfall.</p></div></div>
-          <div class="ins-item"><div class="ins-tag watch"></div><div class="ins-body"><h4>Incentive cost</h4><p>What this launch owes them at their per-token rate. It is launch-specific and settles when the launch does.</p></div></div>
+          <div class="ins-item"><div class="ins-tag watch"></div><div class="ins-body"><h4>Token pay against booking pay</h4><p>Token pay is ₹1,000 a token and is already earned. Booking pay is ₹5,000 a booking and is only a projection here, because bookings are recorded elsewhere. Treat the total as a committed-cost estimate, not a payout sheet.</p></div></div>
           <div class="ins-item"><div class="ins-tag data"></div><div class="ins-body"><h4>Salary</h4><p>Their monthly figure, shown for context only. It is not apportioned to this launch, so don't add the two columns together.</p></div></div>
           <div class="ins-item"><div class="ins-tag risk"></div><div class="ins-body"><h4>Unassigned</h4><p>Tokens logged without an executive land in a row called Unassigned. Fix those days in the Command tab so the leaderboard is honest.</p></div></div>
         </div>
@@ -1454,13 +1478,14 @@ function renderTeam(proj, m, team){
 
     <div class="panel">
       <h3>Executive breakdown</h3>
-      <p class="p-note">Sorted by tokens closed across this launch.</p>
+      <p class="p-note">Sorted by tokens closed. Token pay is earned money. Booking pay is a projection — this tool logs tokens, not bookings, so it applies the ${Math.round(m.convRate*100)}% conversion assumption from Launch settings.</p>
       <div class="scroll">
         <table>
           <thead><tr>
             <th>Executive</th><th class="r">Tokens</th><th class="r">Silver</th><th class="r">Gold</th><th class="r">Platinum</th>
             <th class="r">Token value</th><th class="r">Customers</th><th class="r">Conversion</th>
-            <th class="r">Active days</th><th class="r">Tokens/day</th><th class="r">Incentive</th><th class="r">Salary/mo</th>
+            <th class="r">Active days</th><th class="r">Tokens/day</th>
+            <th class="r">Token pay</th><th class="r">Booking pay</th><th class="r">Total pay</th><th class="r">Salary/mo</th>
           </tr></thead>
           <tbody>
             ${team.length ? team.map((t,i) => `<tr>
@@ -1473,8 +1498,10 @@ function renderTeam(proj, m, team){
               <td class="r">${t.activeDays}</td>
               <td class="r mono">${t.tokensPerDay.toFixed(2)}</td>
               <td class="rt mono">${fmtMoney(t.incentiveCost)}</td>
+              <td class="r mono">${fmtMoney(t.bookingIncentive)}</td>
+              <td class="rt mono">${fmtMoney(t.totalIncentive)}</td>
               <td class="r mono">${t.salary===null?'—':fmtMoney(t.salary)}</td>
-            </tr>`).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--muted-2);padding:24px 0">No tokens attributed yet. Name an executive when you log tokens and this fills in.</td></tr>`}
+            </tr>`).join('') : `<tr><td colspan="14" style="text-align:center;color:var(--muted-2);padding:24px 0">No tokens attributed yet. Name an executive when you log tokens and this fills in.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1494,12 +1521,18 @@ function renderRoster(){
         <div class="form-row"><div class="field"><label>Name</label><input id="rName" placeholder="Full name as it should appear on the leaderboard"></div></div>
         <div class="form-row">
           <div class="field"><label>Salary per month (₹)</label><input type="number" min="0" id="rSalary" value="0"></div>
-          <div class="field"><label>Incentive per token (₹)</label><input type="number" min="0" id="rInc" value="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Per token (₹)</label><input type="number" min="0" id="rInc" value="${STD_TOKEN_INCENTIVE}"></div>
+          <div class="field"><label>Per booking (₹)</label><input type="number" min="0" id="rIncB" value="${STD_BOOKING_INCENTIVE}"></div>
         </div>
         <button class="primary-btn" id="rAdd" ${saving?'disabled':''}>${saving?'Saving…':'Add to roster'}</button>
       </div>
       <div class="panel">
-        <h3>Roster <span class="cnt">${state.team.length} ${state.team.length===1?'person':'people'}</span></h3>
+        <div class="p-head"><h3>Roster <span class="cnt">${state.team.length} ${state.team.length===1?'person':'people'}</span></h3>
+          ${state.team.some(m => !m.incentivePerToken || !m.incentivePerBooking)
+            ? `<button class="link-btn" id="rBulk">Apply ₹${STD_TOKEN_INCENTIVE}/₹${STD_BOOKING_INCENTIVE} to anyone on zero</button>` : ''}
+        </div>
         <p class="p-note">Removing someone keeps every token already logged under their name.</p>
         <div class="scroll" id="rosterTable"></div>
       </div>
@@ -1510,7 +1543,24 @@ function renderRoster(){
     if(!name){ alert('This person needs a name before they can be added.'); return; }
     const salary = parseFloat(document.getElementById('rSalary').value || '0');
     const incentivePerToken = parseFloat(document.getElementById('rInc').value || '0');
-    withSaving(async () => { await apiPost({ action:'saveTeamMember', member:{ name, salary, incentivePerToken } }); await loadState(); });
+    const incentivePerBooking = parseFloat(document.getElementById('rIncB').value || '0');
+    withSaving(async () => { await apiPost({ action:'saveTeamMember', member:{ name, salary, incentivePerToken, incentivePerBooking } }); await loadState(); });
+  };
+
+  const bulk = document.getElementById('rBulk');
+  if(bulk) bulk.onclick = () => {
+    const need = state.team.filter(m => !m.incentivePerToken || !m.incentivePerBooking);
+    if(!confirm(`Set ₹${STD_TOKEN_INCENTIVE} per token and ₹${STD_BOOKING_INCENTIVE} per booking for ${need.length} ${need.length===1?'person':'people'} currently on zero? Anyone already on a custom rate is left alone.`)) return;
+    withSaving(async () => {
+      for(const mem of need){
+        await apiPost({ action:'saveTeamMember', member:{
+          id: mem.id, name: mem.name, salary: mem.salary,
+          incentivePerToken: mem.incentivePerToken || STD_TOKEN_INCENTIVE,
+          incentivePerBooking: mem.incentivePerBooking || STD_BOOKING_INCENTIVE
+        }});
+      }
+      await loadState();
+    });
   };
 
   const t = document.getElementById('rosterTable');
@@ -1520,12 +1570,13 @@ function renderRoster(){
   }
   t.innerHTML = `
     <table>
-      <thead><tr><th>Name</th><th class="r">Salary/mo</th><th class="r">Incentive/token</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th class="r">Salary/mo</th><th class="r">Per token</th><th class="r">Per booking</th><th></th></tr></thead>
       <tbody>
         ${state.team.map(m => `<tr>
           <td>${escapeHtml(m.name)}</td>
           <td class="rt mono">${fmtMoney(m.salary)}</td>
-          <td class="rt mono">${fmtINR(m.incentivePerToken)}</td>
+          <td class="rt mono ${m.incentivePerToken?'':'c-coral'}">${fmtINR(m.incentivePerToken)}</td>
+          <td class="rt mono ${m.incentivePerBooking?'':'c-coral'}">${fmtINR(m.incentivePerBooking)}</td>
           <td style="text-align:right"><button class="danger-btn" data-del="${escapeHtml(m.id)}">Remove</button></td>
         </tr>`).join('')}
       </tbody>
@@ -1577,7 +1628,7 @@ function execSelect(i, value, key, arrName){
 }
 function addExec(name){
   if(!name || state.team.some(m => m.name === name)) return;
-  withSaving(async () => { await apiPost({ action:'saveTeamMember', member:{ name, salary:0, incentivePerToken:0 } }); await loadState(); });
+  withSaving(async () => { await apiPost({ action:'saveTeamMember', member:{ name, salary:0, incentivePerToken:STD_TOKEN_INCENTIVE, incentivePerBooking:STD_BOOKING_INCENTIVE } }); await loadState(); });
 }
 
 function renderEntryForm(proj){
