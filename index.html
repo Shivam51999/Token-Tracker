@@ -303,7 +303,26 @@ const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','S
 const DEFAULT_PRICES = { '2BHK':6500000, '2.5BHK':7800000, '3BHK':9500000, '3.5BHK':11500000, '4BHK':15000000 };
 const DEFAULT_ASSUMPTIONS = { tokenToBooking: 65 };   // % of tokens that become bookings
 
-function tokenTypeInfo(name){ return TOKEN_TYPES.find(t => t.name === name) || TOKEN_TYPES[0]; }
+function tokenTypeInfo(name){
+  const hit = TOKEN_TYPES.find(t => t.name === name);
+  if(hit) return hit;
+  const k = canonKey(name);
+  return TOKEN_TYPES.find(t => canonKey(t.name) === k) || TOKEN_TYPES[0];
+}
+
+/* Sheets get typed by hand, so "2 BHK", "Digitals" and "Direct Walk-In" all turn up.
+   Match them to the canonical label instead of silently dropping the row. An
+   unrecognised value is left exactly as typed so it stays visible on the board. */
+function canonKey(s){ return String(s==null?'':s).toLowerCase().replace(/[\s_\-.]/g,''); }
+function canonical(list, raw){
+  const v = String(raw==null?'':raw).trim();
+  if(!v) return v;
+  const k = canonKey(v);
+  return list.find(x => canonKey(x) === k)
+      || list.find(x => canonKey(x) === k.replace(/s$/,''))
+      || list.find(x => canonKey(x)+'s' === k)
+      || v;
+}
 
 let state = { projects: [], entries: [], team: [], customerAttended: [], activeProjectId: null };
 let view = 'command';
@@ -382,13 +401,20 @@ async function loadState(){
     });
 
     state.entries = (data.entries || []).map(e => {
-      const walkinRows = (e.walkins || []).map(w => ({ channel:w.channel, count:num(w.count) }));
+      const walkinRows = (e.walkins || []).map(w => ({ channel:canonical(CHANNELS, w.channel), count:num(w.count) }));
       return {
         id:e.id, projectId:e.projectId, date:e.date,
         walkinRows,
         walkins: walkinRows.reduce((s,w)=>s+w.count,0),
-        tokens: (e.tokens || []).map(t => ({ ...t, count:num(t.count) })),
-        attendance: (e.attendance || []).map(a => ({ salesExecutive:a.salesExecutive, customersAttended:num(a.customersAttended) }))
+        tokens: (e.tokens || []).map(t => ({
+          ...t,
+          unitType:  canonical(UNIT_TYPES, t.unitType),
+          channel:   canonical(CHANNELS, t.channel),
+          tokenType: canonical(TOKEN_TYPES.map(x => x.name), t.tokenType),
+          salesExecutive: String(t.salesExecutive==null?'':t.salesExecutive).trim(),
+          count: num(t.count)
+        })),
+        attendance: (e.attendance || []).map(a => ({ salesExecutive:String(a.salesExecutive==null?'':a.salesExecutive).trim(), customersAttended:num(a.customersAttended) }))
       };
     });
 
