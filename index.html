@@ -41,14 +41,42 @@
   body{
     margin:0; color:var(--ink); font-family:'Inter',system-ui,sans-serif; font-size:14px; line-height:1.5;
     background:
-      radial-gradient(900px 340px at 8% -6%, rgba(168,85,247,.05), transparent 62%),
-      radial-gradient(800px 320px at 96% 2%, rgba(34,211,238,.045), transparent 58%),
+      radial-gradient(1000px 380px at 8% -8%, rgba(168,85,247,.10), transparent 64%),
+      radial-gradient(900px 340px at 96% 0%, rgba(34,211,238,.07), transparent 60%),
+      radial-gradient(700px 500px at 50% 108%, rgba(168,85,247,.05), transparent 62%),
       var(--paper);
     background-attachment:fixed;
     -webkit-font-smoothing:antialiased;
   }
+
+  /* --------------------------------------------------------- background art
+     Two fixed layers behind everything: an instrument-panel mesh that fades out
+     toward the edges, and a fine grain that stops the large gradients banding on
+     cheaper monitors. Pure CSS and inline SVG, so the file stays self-contained
+     on a network that blocks external assets. */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      linear-gradient(rgba(168,85,247,.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,85,247,.055) 1px, transparent 1px),
+      linear-gradient(rgba(34,211,238,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34,211,238,.028) 1px, transparent 1px);
+    background-size:112px 112px, 112px 112px, 28px 28px, 28px 28px;
+    -webkit-mask-image:radial-gradient(ellipse 92% 78% at 50% 34%, #000 8%, transparent 76%);
+    mask-image:radial-gradient(ellipse 92% 78% at 50% 34%, #000 8%, transparent 76%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;
+    mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  @media (prefers-reduced-motion: no-preference){
+    body::before{animation:drift 90s linear infinite;}
+    @keyframes drift{from{background-position:0 0,0 0,0 0,0 0;}
+                     to{background-position:112px 112px,112px 112px,28px 28px,28px 28px;}}
+  }
   .mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
-  #app{max-width:1360px; margin:0 auto; padding:0 26px 96px;}
+  #app{position:relative; z-index:1; max-width:1360px; margin:0 auto; padding:0 26px 96px;}
   button{font-family:inherit;}
   button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important;} }
@@ -58,7 +86,7 @@
   /* ---------------------------------------------------------------- nav */
   .nav{
     position:sticky; top:0; z-index:40; margin:0 -26px; padding:15px 26px 0;
-    background:rgba(13,17,23,.90); backdrop-filter:blur(14px);
+    background:rgba(13,17,23,.82); backdrop-filter:blur(14px);
     border-bottom:1px solid var(--rule);
     display:flex; align-items:center; gap:22px; flex-wrap:wrap;
   }
@@ -117,8 +145,9 @@
     position:relative; overflow:hidden;
     margin:20px 0 18px; border:1px solid rgba(168,85,247,.24); border-radius:var(--r);
     background:
-      radial-gradient(520px 200px at 6% 0%, rgba(168,85,247,.11), transparent 66%),
-      linear-gradient(180deg,#16202B,#121A23);
+      radial-gradient(520px 200px at 6% 0%, rgba(168,85,247,.13), transparent 66%),
+      linear-gradient(180deg,rgba(22,32,43,.90),rgba(18,26,35,.90));
+    backdrop-filter:blur(9px);
     box-shadow:0 0 44px rgba(168,85,247,.07),var(--shadow);
     padding:30px 32px 28px;
     display:grid; grid-template-columns:1fr 200px 300px; gap:36px; align-items:center;
@@ -186,7 +215,8 @@
   /* ------------------------------------------------------------ kpi row */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(206px,1fr));gap:14px;margin-bottom:18px;}
   .kcard{
-    border:1px solid var(--rule);border-radius:var(--r);background:var(--surface);
+    border:1px solid var(--rule);border-radius:var(--r);
+    background:rgba(20,27,36,.86);backdrop-filter:blur(9px);
     box-shadow:var(--shadow);padding:16px 18px 0;overflow:hidden;display:flex;flex-direction:column;
     transition:border-color .16s;
   }
@@ -219,7 +249,8 @@
 
   /* ------------------------------------------------------------- panels */
   .panel{
-    background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
+    background:rgba(20,27,36,.86);backdrop-filter:blur(9px);
+    border:1px solid var(--rule);border-radius:var(--r);
     box-shadow:var(--shadow);padding:20px 22px 22px;
     transition:border-color .22s,box-shadow .22s;
   }
@@ -559,7 +590,16 @@ async function loadState(){
           count: num(t.count),
           amount: slabAmount(proj, t.tokenType)
         })),
-        attendance: (e.attendance || []).map(a => ({ salesExecutive:String(a.salesExecutive==null?'':a.salesExecutive).trim(), customersAttended:num(a.customersAttended) }))
+        attendance: (e.attendance || []).map(a => ({ salesExecutive:String(a.salesExecutive==null?'':a.salesExecutive).trim(), customersAttended:num(a.customersAttended) })),
+        upgrades: (e.upgrades || []).map(u => {
+          const from = canonical(TOKEN_TYPES.map(x => x.name), u.fromSlab);
+          const to   = canonical(TOKEN_TYPES.map(x => x.name), u.toSlab);
+          const fromAmt = slabAmount(proj, from), toAmt = slabAmount(proj, to);
+          return { fromSlab:from, toSlab:to,
+                   salesExecutive:String(u.salesExecutive==null?'':u.salesExecutive).trim(),
+                   count:num(u.count), fromAmount:fromAmt, toAmount:toAmt,
+                   delta:(toAmt - fromAmt) * num(u.count) };
+        })
       };
     });
 
@@ -607,13 +647,43 @@ function computeMetrics(project){
   const totalWalkins = entries.reduce((s,e) => s + e.walkins, 0);
   const totalTokens  = entries.reduce((s,e) => s + e.tokens.reduce((ss,t) => ss + t.count, 0), 0);
 
+  /* An upgrade is the same token moving slab, so it never adds to the count.
+     Only the top-up money is new. The ledger below tracks where the book
+     actually stands: issued, moved out, moved in, net. */
+  const ledger = {};
+  TOKEN_TYPES.forEach(t => ledger[t.name] = { issued:0, out:0, in:0 });
+  entries.forEach(e => {
+    e.tokens.forEach(t => { if(ledger[t.tokenType]) ledger[t.tokenType].issued += t.count; });
+    (e.upgrades||[]).forEach(u => {
+      if(ledger[u.fromSlab]) ledger[u.fromSlab].out += u.count;
+      if(ledger[u.toSlab])   ledger[u.toSlab].in   += u.count;
+    });
+  });
+  TOKEN_TYPES.forEach(t => {
+    const L = ledger[t.name];
+    L.net = L.issued - L.out + L.in;
+    L.amount = slabAmount(project, t.name);
+    L.value = L.net * L.amount;
+    L.refundable = t.refundable;
+  });
+
   let totalValue = 0, secured = 0, atRisk = 0;
-  entries.forEach(e => e.tokens.forEach(t => {
-    const info = tokenTypeInfo(t.tokenType);
-    const v = t.count * t.amount;
-    totalValue += v;
-    if(info.refundable) atRisk += v; else secured += v;
-  }));
+  TOKEN_TYPES.forEach(t => {
+    const L = ledger[t.name];
+    totalValue += L.value;
+    if(L.refundable) atRisk += L.value; else secured += L.value;
+  });
+
+  const issuedValue = entries.reduce((s,e) => s + e.tokens.reduce((ss,t)=>ss+t.count*t.amount,0), 0);
+  const upgradeCount = entries.reduce((s,e) => s + (e.upgrades||[]).reduce((ss,u)=>ss+u.count,0), 0);
+  const upgradeValue = entries.reduce((s,e) => s + (e.upgrades||[]).reduce((ss,u)=>ss+u.delta,0), 0);
+  // what the still-refundable book is worth if every one of them went to the top slab
+  const topSlab = TOKEN_TYPES.filter(t => !t.refundable).slice(-1)[0] || TOKEN_TYPES[TOKEN_TYPES.length-1];
+  const topAmount = slabAmount(project, topSlab.name);
+  const upgradeUpside = TOKEN_TYPES.filter(t => t.refundable)
+    .reduce((s,t) => s + ledger[t.name].net * Math.max(0, topAmount - ledger[t.name].amount), 0);
+  const refundableTokens = TOKEN_TYPES.filter(t => t.refundable).reduce((s,t)=>s+ledger[t.name].net,0);
+  const upgradeRate = pctOf(upgradeCount, upgradeCount + refundableTokens);
 
   const daysTotal     = Math.max(1, daysBetween(project.launchDate, project.targetDate) + 1);
   const rawRemaining  = daysBetween(today, project.targetDate) + 1;   // today counts as a selling day
@@ -671,6 +741,8 @@ function computeMetrics(project){
   const todayEntry = entries.find(e => e.date === today) || null;
 
   return { entries, today, totalWalkins, totalTokens, totalValue, secured, atRisk,
+    ledger, issuedValue, upgradeCount, upgradeValue, upgradeUpside, upgradeRate,
+    refundableTokens, topSlabName: topSlab.name, topAmount,
     daysTotal, daysRemaining, daysElapsed, windowClosed, notStarted, loggedDays,
     runTokens, runWalkins, walkinsLeft, tokensLeft, reqTokens, reqWalkins,
     projectedTokens, projectedWalkins, gapAtTarget, paceIndex, expectedPct, achievedPct,
@@ -733,24 +805,29 @@ function unitStats(project, entries){
   })).sort((a,b) => b.tokens - a.tokens);
 }
 
-function typeStats(entries){
-  const rows = TOKEN_TYPES.map(t => ({ name:t.name, key:t.key, refundable:t.refundable, count:0, value:0 }));
-  entries.forEach(e => e.tokens.forEach(t => {
-    const r = rows.find(x => x.name === t.tokenType);
-    if(r){ r.count += t.count; r.value += t.count * t.amount; }
-  }));
-  return rows;
+function typeStats(m){
+  return TOKEN_TYPES.map(t => {
+    const L = m.ledger[t.name];
+    return { name:t.name, key:t.key, refundable:t.refundable,
+             issued:L.issued, out:L.out, in:L.in, count:L.net, amount:L.amount, value:L.value };
+  });
 }
 
 function teamPerformance(entries, projectId, convRate){
   const map = {};
-  const seed = n => { if(!map[n]) map[n] = { name:n, tokens:0, value:0, silver:0, gold:0, platinum:0, dates:new Set(), customers:0 }; return map[n]; };
+  const seed = n => { if(!map[n]) map[n] = { name:n, tokens:0, value:0, silver:0, gold:0, platinum:0, dates:new Set(), customers:0, upgrades:0, upgradeValue:0 }; return map[n]; };
   entries.forEach(e => e.tokens.forEach(t => {
     const r = seed((t.salesExecutive || 'Unassigned').trim() || 'Unassigned');
     r.tokens += t.count;
     r.value  += t.count * t.amount;
     r.dates.add(e.date);
     r[tokenTypeInfo(t.tokenType).key] += t.count;
+  }));
+  entries.forEach(e => (e.upgrades||[]).forEach(u => {
+    const r = seed((u.salesExecutive || 'Unassigned').trim() || 'Unassigned');
+    r.upgrades += u.count;
+    r.upgradeValue += u.delta;
+    r.dates.add(e.date);
   }));
   state.customerAttended.filter(c => c.projectId === projectId).forEach(c => {
     const r = seed(c.teamMemberName); r.customers += c.count; r.dates.add(c.date);
@@ -854,6 +931,12 @@ function buildInsights(project, m, ch, wd, units, team){
   const behind = ch.filter(c => c.targetTokens > 0 && c.tokenPct < 60).sort((a,b) => a.tokenPct - b.tokenPct)[0];
   if(behind) out.push({ kind:'risk', title:`${behind.channel} is at ${Math.round(behind.tokenPct)}% of its token target`,
     text:`${behind.achievedTokens} of ${behind.targetTokens} tokens, leaving a gap of ${behind.gap}. This is the single biggest channel shortfall on the board.` });
+
+  // upgrade opportunity — the cheapest money on the board
+  if(m.refundableTokens > 0 && m.upgradeUpside > 0){
+    out.push({ kind:'watch', title:`${m.refundableTokens} tokens could still move up to ${m.topSlabName}`,
+      text:`That is <b>${fmtMoney(m.upgradeUpside)}</b> of top-up money from customers who have already said yes once, and it converts refundable cash into locked cash. ${m.upgradeCount ? `${m.upgradeCount} have moved so far, an upgrade rate of ${m.upgradeRate.toFixed(0)}%.` : 'Nothing has been upgraded yet.'}` });
+  }
 
   // refundable exposure
   if(m.totalValue > 0){
@@ -987,7 +1070,7 @@ function dailySeries(m, n){
     const e = by[d];
     if(!e){ out.tokens.push(null); out.walkins.push(null); out.conv.push(null); out.value.push(cum); continue; }
     const t = e.tokens.reduce((s,x)=>s+x.count,0);
-    cum += e.tokens.reduce((s,x)=>s+x.count*x.amount,0);
+    cum += e.tokens.reduce((s,x)=>s+x.count*x.amount,0) + (e.upgrades||[]).reduce((s,u)=>s+u.delta,0);
     out.tokens.push(t); out.walkins.push(e.walkins);
     out.conv.push(e.walkins ? pctOf(t, e.walkins) : null);
     out.value.push(cum);
@@ -1159,6 +1242,7 @@ function heroBlock(project, m, health){
       <div class="hero-num mono">${m.totalTokens}<span class="sub"> / ${project.targetTokens}</span><span class="u">tokens</span></div>
       <div class="chips">
         <span class="chip"><b>${fmtMoney(m.totalValue)}</b> collected</span>
+        ${m.upgradeCount ? `<span class="chip good"><b>${m.upgradeCount}</b> upgraded, +${fmtMoney(m.upgradeValue)}</span>` : ''}
         <span class="chip"><b>${fmtMoney(m.bookedValue)}</b> booking pipeline</span>
         <span class="chip"><b>${m.totalWalkins}</b> walk-ins at ${m.conversion.toFixed(1)}%</span>
         <span class="chip hot"><b>${m.windowClosed ? '—' : m.daysRemaining}</b> ${daysTxt}</span>
@@ -1215,7 +1299,7 @@ function renderCommand(proj, m, ch, wd, units, team){
       <div class="kcard">
         <div class="lbl">Token money in</div>
         <div class="big c-mint">${fmtMoney(m.totalValue)}</div>
-        <div class="foot"><b>${fmtMoney(m.secured)}</b> locked, ${fmtMoney(m.atRisk)} refundable</div>
+        <div class="foot"><b>${fmtMoney(m.secured)}</b> locked, ${fmtMoney(m.atRisk)} refundable${m.upgradeValue?` · +${fmtMoney(m.upgradeValue)} from upgrades`:''}</div>
         <div class="spark">${sparkline(sp.value, '#2FE3A0')}</div>
       </div>
       <div class="kcard">
@@ -1348,7 +1432,7 @@ function startClock(m){
 /* ----------------------------------------------------------- channels view */
 function renderChannels(proj, m, ch, units){
   const body = document.getElementById('body');
-  const typeRows = typeStats(m.entries);
+  const typeRows = typeStats(m);
   const totalT = typeRows.reduce((s,r)=>s+r.count,0);
 
   body.innerHTML = `
@@ -1400,19 +1484,31 @@ function renderChannels(proj, m, ch, units){
       </div>
       <div class="panel">
         <h3>Where the money is locked</h3>
-        <p class="p-note">Platinum is the only non-refundable slab. The rest can leave.</p>
+        <p class="p-note">An upgrade moves a token between slabs rather than creating one, so the net column is where the book actually stands. Money collected is ${fmtMoney(m.issuedValue)} at issue plus ${fmtMoney(m.upgradeValue)} in top-ups.</p>
         <div class="chart"><canvas id="cMix"></canvas></div>
         <div class="scroll" style="margin-top:12px;">
           <table>
-            <thead><tr><th>Slab</th><th class="r">Amount</th><th class="r">Tokens</th><th class="r">Share</th><th class="r">Value</th><th class="r">Status</th></tr></thead>
+            <thead><tr><th>Slab</th><th class="r">Amount</th><th class="r">Issued</th><th class="r">Upgraded out</th><th class="r">Upgraded in</th><th class="r">Net</th><th class="r">Value</th><th class="r">Status</th></tr></thead>
             <tbody>
               ${typeRows.map(r => `<tr>
-                <td>${r.name}</td><td class="r mono">${fmtINR(slabAmount(proj, r.name))}</td><td class="n">${r.count}</td>
-                <td class="r mono">${pctOf(r.count,totalT).toFixed(0)}%</td>
+                <td>${r.name}</td>
+                <td class="r mono">${fmtINR(r.amount)}</td>
+                <td class="r mono">${r.issued}</td>
+                <td class="r mono ${r.out?'down':''}">${r.out ? '−'+r.out : '—'}</td>
+                <td class="r mono ${r.in?'up':''}">${r.in ? '+'+r.in : '—'}</td>
+                <td class="n">${r.count}</td>
                 <td class="rt mono">${fmtMoney(r.value)}</td>
                 <td class="r">${r.refundable ? '<span class="pill warn">Refundable</span>' : '<span class="pill good">Locked</span>'}</td>
               </tr>`).join('')}
             </tbody>
+            <tfoot><tr>
+              <td>Total</td><td></td>
+              <td class="r">${typeRows.reduce((s,r)=>s+r.issued,0)}</td>
+              <td class="r">${m.upgradeCount ? '−'+m.upgradeCount : '—'}</td>
+              <td class="r">${m.upgradeCount ? '+'+m.upgradeCount : '—'}</td>
+              <td class="rt">${m.totalTokens}</td>
+              <td class="rt mono">${fmtMoney(m.totalValue)}</td><td></td>
+            </tr></tfoot>
           </table>
         </div>
       </div>
@@ -1502,7 +1598,7 @@ function renderPattern(proj, m, wd){
           <tbody>
             ${rows.length ? rows.map(e => {
               const t = e.tokens.reduce((s,x)=>s+x.count,0);
-              const v = e.tokens.reduce((s,x)=>s+x.count*x.amount,0);
+              const v = e.tokens.reduce((s,x)=>s+x.count*x.amount,0) + (e.upgrades||[]).reduce((s,u)=>s+u.delta,0);
               const par = proj.targetTokens / m.daysTotal;
               const diff = t - par;
               return `<tr>
@@ -1570,12 +1666,12 @@ function renderTeam(proj, m, team){
 
     <div class="panel">
       <h3>Executive breakdown</h3>
-      <p class="p-note">Sorted by tokens closed. Token pay is earned money. Booking pay is a projection — this tool logs tokens, not bookings, so it applies the ${Math.round(m.convRate*100)}% conversion assumption from Launch settings.</p>
+      <p class="p-note">Sorted by tokens closed. Upgrades carry no extra incentive by design — they show here as top-up value so the person who moved a customer up a slab gets visible credit. Token pay is earned money. Booking pay is a projection — this tool logs tokens, not bookings, so it applies the ${Math.round(m.convRate*100)}% conversion assumption from Launch settings.</p>
       <div class="scroll">
         <table>
           <thead><tr>
             <th>Executive</th><th class="r">Tokens</th><th class="r">Silver</th><th class="r">Gold</th><th class="r">Platinum</th>
-            <th class="r">Token value</th><th class="r">Customers</th><th class="r">Conversion</th>
+            <th class="r">Token value</th><th class="r">Upgrades</th><th class="r">Top-up value</th><th class="r">Customers</th><th class="r">Conversion</th>
             <th class="r">Active days</th><th class="r">Tokens/day</th>
             <th class="r">Token pay</th><th class="r">Booking pay</th><th class="r">Total pay</th><th class="r">Salary/mo</th>
           </tr></thead>
@@ -1585,6 +1681,8 @@ function renderTeam(proj, m, team){
               <td class="n">${t.tokens}</td>
               <td class="r">${t.silver}</td><td class="r">${t.gold}</td><td class="r">${t.platinum}</td>
               <td class="rt mono">${fmtMoney(t.value)}</td>
+              <td class="r mono ${t.upgrades?'up':''}">${t.upgrades || '—'}</td>
+              <td class="rt mono">${t.upgradeValue ? '+'+fmtMoney(t.upgradeValue) : '—'}</td>
               <td class="r">${t.customers}</td>
               <td class="rt mono ${t.conversion!==null&&t.conversion>=10?'up':''}">${t.conversion===null?'—':t.conversion.toFixed(0)+'%'}</td>
               <td class="r">${t.activeDays}</td>
@@ -1593,7 +1691,7 @@ function renderTeam(proj, m, team){
               <td class="r mono">${fmtMoney(t.bookingIncentive)}</td>
               <td class="rt mono">${fmtMoney(t.totalIncentive)}</td>
               <td class="r mono">${t.salary===null?'—':fmtMoney(t.salary)}</td>
-            </tr>`).join('') : `<tr><td colspan="14" style="text-align:center;color:var(--muted-2);padding:24px 0">No tokens attributed yet. Name an executive when you log tokens and this fills in.</td></tr>`}
+            </tr>`).join('') : `<tr><td colspan="16" style="text-align:center;color:var(--muted-2);padding:24px 0">No tokens attributed yet. Name an executive when you log tokens and this fills in.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1689,7 +1787,8 @@ function newDraft(){
     entryId: null, date: todayISO(),
     walkins: [{ channel:CHANNELS[0], count:0 }],
     customers: [{ teamMemberName:'', count:0 }],
-    tokens: [{ unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 }]
+    tokens: [{ unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 }],
+    upgrades: []
   };
 }
 function ensureDraft(){ if(!draft) draft = newDraft(); return draft; }
@@ -1701,7 +1800,8 @@ function loadDayIntoDraft(entry, projectId){
     entryId: entry.id, date: entry.date,
     walkins: entry.walkinRows.length ? entry.walkinRows.map(w => ({...w})) : [{ channel:CHANNELS[0], count:0 }],
     customers: cust.length ? cust : [{ teamMemberName:'', count:0 }],
-    tokens: entry.tokens.length ? entry.tokens.map(t => ({...t})) : [{ unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 }]
+    tokens: entry.tokens.length ? entry.tokens.map(t => ({...t})) : [{ unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 }],
+    upgrades: (entry.upgrades || []).map(u => ({...u}))
   };
   render();
   const f = document.getElementById('entryForm');
@@ -1750,9 +1850,18 @@ function renderEntryForm(proj){
       <button class="link-btn" id="addT" style="margin-top:8px;">Add a token</button>
     </div>
 
+    <div class="rg">
+      <div class="rg-title">Slab upgrades<span class="hint">${d.upgrades.length ? '+'+fmtINR(d.upgrades.reduce((s,u)=>s+(slabAmount(proj,u.toSlab)-slabAmount(proj,u.fromSlab))*num(u.count),0)) : 'none today'}</span></div>
+      <div class="subs" id="uRows"></div>
+      <button class="link-btn" id="addU" style="margin-top:8px;">Add an upgrade</button>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.55;">
+        Log an upgrade here, not as a new token. The token stays counted once and only the top-up is added to money collected.
+      </div>
+    </div>
+
     <button class="primary-btn" id="saveEntry" ${saving?'disabled':''}>${saving ? 'Saving…' : (d.entryId ? 'Save changes to '+fmtDate(d.date) : 'Save '+fmtDate(d.date))}</button>
   `;
-  drawWalkinRows(); drawCustomerRows(); drawTokenRows();
+  drawWalkinRows(); drawCustomerRows(); drawTokenRows(); drawUpgradeRows();
 
   document.getElementById('fDate').onchange = e => { d.date = e.target.value || todayISO(); d.entryId = null; renderEntryForm(proj); };
   const ce = document.getElementById('cancelEdit'); if(ce) ce.onclick = () => { draft = newDraft(); renderEntryForm(proj); };
@@ -1760,6 +1869,7 @@ function renderEntryForm(proj){
   document.getElementById('addW').onclick = () => { d.walkins.push({ channel:CHANNELS[0], count:0 }); renderEntryForm(proj); };
   document.getElementById('addC').onclick = () => { d.customers.push({ teamMemberName:'', count:0 }); renderEntryForm(proj); };
   document.getElementById('addT').onclick = () => { d.tokens.push({ unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 }); renderEntryForm(proj); };
+  document.getElementById('addU').onclick = () => { d.upgrades.push({ fromSlab:TOKEN_TYPES[0].name, toSlab:TOKEN_TYPES[1].name, salesExecutive:'', count:1 }); renderEntryForm(proj); };
 
   document.getElementById('saveEntry').onclick = () => {
     const date = d.date || todayISO();
@@ -1767,13 +1877,47 @@ function renderEntryForm(proj){
     const attendance = d.customers.map(r => ({ salesExecutive:r.teamMemberName, customersAttended:parseInt(r.count||0,10) }))
       .filter(r => r.salesExecutive && r.customersAttended > 0);
     const tokens = d.tokens.map(r => ({ ...r, count:parseInt(r.count||0,10) })).filter(r => r.count > 0);
-    if(!walkins.length && !tokens.length && !attendance.length){ alert('There is nothing to save on this day yet — add walk-ins, customers or tokens first.'); return; }
+    const upgrades = d.upgrades.map(r => ({ fromSlab:r.fromSlab, toSlab:r.toSlab,
+      salesExecutive:r.salesExecutive || '', count:parseInt(r.count||0,10) })).filter(r => r.count > 0);
+    const sameSlab = upgrades.find(u => u.fromSlab === u.toSlab);
+    if(sameSlab){ alert(`An upgrade row moves from ${sameSlab.fromSlab} to ${sameSlab.fromSlab}, which changes nothing. Fix or remove it.`); return; }
+    const downward = upgrades.find(u => slabAmount(proj, u.toSlab) < slabAmount(proj, u.fromSlab));
+    if(downward && !confirm(`One row moves ${downward.fromSlab} down to ${downward.toSlab}, which subtracts money. Save it anyway?`)) return;
+    if(!walkins.length && !tokens.length && !attendance.length && !upgrades.length){ alert('There is nothing to save on this day yet — add walk-ins, customers or tokens first.'); return; }
     withSaving(async () => {
-      await apiPost({ action:'saveEntry', entry:{ projectId:proj.id, date, walkins, tokens, attendance } });
+      await apiPost({ action:'saveEntry', entry:{ projectId:proj.id, date, walkins, tokens, attendance, upgrades } });
       draft = newDraft();
       await loadState();
     });
   };
+}
+
+function drawUpgradeRows(){
+  const wrap = document.getElementById('uRows'); if(!wrap) return;
+  const proj = activeProject();
+  wrap.innerHTML = '';
+  if(!draft.upgrades.length){
+    wrap.innerHTML = `<div style="font-size:12.5px;color:var(--faint);padding:2px 0;">No upgrades logged for this day.</div>`;
+    return;
+  }
+  draft.upgrades.forEach((r,i) => {
+    const delta = (slabAmount(proj, r.toSlab) - slabAmount(proj, r.fromSlab)) * num(r.count);
+    const opts = sel => TOKEN_TYPES.map(t => `<option value="${t.name}" ${sel===t.name?'selected':''}>${t.name} — ${fmtINR(slabAmount(proj, t.name))}</option>`).join('');
+    const div = document.createElement('div'); div.className = 'sub-row';
+    div.innerHTML = `
+      <div class="field"><label>From slab</label>
+        <select data-arr="upgrades" data-i="${i}" data-k="fromSlab">${opts(r.fromSlab)}</select></div>
+      <div class="field"><label>To slab</label>
+        <select data-arr="upgrades" data-i="${i}" data-k="toSlab">${opts(r.toSlab)}</select></div>
+      <div class="field"><label>Executive</label>${execSelect(i, r.salesExecutive || '', 'salesExecutive', 'upgrades')}</div>
+      <div class="field" style="max-width:78px;"><label>Count</label>
+        <input type="number" min="0" data-arr="upgrades" data-i="${i}" data-k="count" value="${r.count}"></div>
+      <div class="field" style="max-width:112px;"><label>Top-up</label>
+        <div class="mono" style="padding:9px 0;font-size:13px;color:${delta>0?'var(--pos)':'var(--neg)'};">${delta>=0?'+':''}${fmtINR(delta)}</div></div>
+      <button class="icon-btn" data-del="upgrades:${i}" title="Remove this row">×</button>`;
+    wrap.appendChild(div);
+  });
+  wireRows(wrap);
 }
 
 function drawWalkinRows(){
@@ -1825,6 +1969,7 @@ function drawTokenRows(){
 function redraw(arr){
   if(arr === 'walkins') drawWalkinRows();
   else if(arr === 'customers') drawCustomerRows();
+  else if(arr === 'upgrades') drawUpgradeRows();
   else drawTokenRows();
   updateTotal(arr);
 }
@@ -1836,6 +1981,7 @@ function updateTotal(arr){
   if(hint) hint.textContent = 'total ' + total;
 }
 function defaultRow(arr){
+  if(arr === 'upgrades') return { fromSlab:TOKEN_TYPES[0].name, toSlab:TOKEN_TYPES[1].name, salesExecutive:'', count:1 };
   if(arr === 'walkins') return { channel:CHANNELS[0], count:0 };
   if(arr === 'customers') return { teamMemberName:'', count:0 };
   return { unitType:UNIT_TYPES[0], channel:CHANNELS[0], tokenType:TOKEN_TYPES[0].name, salesExecutive:'', count:1 };
@@ -1850,14 +1996,14 @@ function wireRows(wrap){
         redraw(arr); return;
       }
       draft[arr][i][k] = e.target.value;
-      if(k === 'count') updateTotal(arr); else redraw(arr);
+      if(k === 'count' && arr !== 'upgrades') updateTotal(arr); else redraw(arr);
     };
     el.onchange = handler;
   });
   wrap.querySelectorAll('[data-del]').forEach(b => b.onclick = e => {
     const [arr, idx] = e.target.dataset.del.split(':');
     draft[arr].splice(+idx, 1);
-    if(!draft[arr].length) draft[arr].push(defaultRow(arr));
+    if(!draft[arr].length && arr !== 'upgrades') draft[arr].push(defaultRow(arr));
     redraw(arr);
   });
 }
@@ -1870,12 +2016,13 @@ function renderLog(entries, projectId){
     const wTags = (e.walkinRows||[]).map(w => `<span class="tag walkin">${escapeHtml(w.channel)} ${w.count}</span>`).join('');
     const cTags = state.customerAttended.filter(c => c.projectId===projectId && c.date===e.date)
       .map(c => `<span class="tag cust">${escapeHtml(c.teamMemberName)} saw ${c.count}</span>`).join('');
+    const uTags = (e.upgrades||[]).map(u => `<span class="tag platinum">${escapeHtml(u.fromSlab)} → ${escapeHtml(u.toSlab)} ×${u.count} (+${fmtINR(u.delta)})</span>`).join('');
     const tTags = e.tokens.map(x => `<span class="tag ${tokenTypeInfo(x.tokenType).key}">${escapeHtml(x.unitType)} ${escapeHtml(x.tokenType)}${x.salesExecutive?' · '+escapeHtml(x.salesExecutive):''} ×${x.count}</span>`).join('');
     return `<div class="log-item">
       <div class="d mono">${fmtDate(e.date)}<small>${fmtDay(e.date)}</small></div>
-      <div class="st"><span class="n">${e.walkins}</span> walk-ins, <span class="n">${t}</span> token${t===1?'':'s'}
+      <div class="st"><span class="n">${e.walkins}</span> walk-ins, <span class="n">${t}</span> token${t===1?'':'s'}${(e.upgrades||[]).length ? `, <span class="n">${(e.upgrades||[]).reduce((s,u)=>s+u.count,0)}</span> upgraded` : ''}
         ${e.walkins ? `<span style="color:var(--muted-2)"> · ${pctOf(t,e.walkins).toFixed(0)}%</span>` : ''}
-        <div class="tags">${wTags}${cTags}${tTags}</div></div>
+        <div class="tags">${wTags}${cTags}${tTags}${uTags}</div></div>
       <div class="acts">
         <button class="link-btn" data-edit="${escapeHtml(e.id)}">Edit</button>
         <button class="icon-btn" data-drop="${escapeHtml(e.id)}" title="Delete this day" style="width:28px;height:28px;font-size:14px;">×</button>
@@ -2076,12 +2223,14 @@ function drawTeam(team){
 
 /* ------------------------------------------------------------------ export */
 function exportCsv(proj, m){
-  const rows = [['Date','Weekday','Channel','Configuration','Slab','Executive','Tokens','Token value','Walk-ins that day']];
+  const rows = [['Date','Weekday','Type','Channel','Configuration','Slab','Executive','Tokens','Value','Walk-ins that day']];
   m.entries.forEach(e => {
     const wd = WEEKDAYS[dObj(e.date).getDay()];
-    if(!e.tokens.length) rows.push([e.date, wd, '', '', '', '', 0, 0, e.walkins]);
-    e.tokens.forEach(t => rows.push([e.date, wd, t.channel, t.unitType, t.tokenType, t.salesExecutive||'Unassigned',
+    if(!e.tokens.length && !(e.upgrades||[]).length) rows.push([e.date, wd, 'Token', '', '', '', '', 0, 0, e.walkins]);
+    e.tokens.forEach(t => rows.push([e.date, wd, 'Token', t.channel, t.unitType, t.tokenType, t.salesExecutive||'Unassigned',
       t.count, t.count*t.amount, e.walkins]));
+    (e.upgrades||[]).forEach(u => rows.push([e.date, wd, 'Upgrade', '', '', u.fromSlab+' to '+u.toSlab,
+      u.salesExecutive||'Unassigned', u.count, u.delta, e.walkins]));
   });
   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
