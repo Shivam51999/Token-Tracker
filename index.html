@@ -9,13 +9,13 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#05080B;
-    --bg-2:#080C11;
-    --panel:#0C1116;
-    --panel-2:#111821;
-    --raise:#16202B;
-    --line:#1A222C;
-    --line-soft:#141B23;
+    --bg:#10161D;
+    --bg-2:#141B23;
+    --panel:#19212A;
+    --panel-2:#1F2833;
+    --raise:#26313E;
+    --line:#2C3745;
+    --line-soft:#232C38;
     --amber:#E8B33D;
     --amber-soft:rgba(232,179,61,.12);
     --mint:#3ECF8E;
@@ -24,7 +24,7 @@
     --coral:#F2555A;
     --text:#E6E9EC;
     --muted:#6F7B87;
-    --muted-2:#4A555F;
+    --muted-2:#5F6B78;
     --r:14px;
   }
   *{box-sizing:border-box;}
@@ -43,7 +43,7 @@
   /* ---------------------------------------------------------------- nav */
   .nav{
     position:sticky; top:0; z-index:40; margin:0 -22px; padding:14px 22px 12px;
-    background:rgba(5,8,11,.92); backdrop-filter:blur(16px);
+    background:rgba(16,22,29,.92); backdrop-filter:blur(16px);
     border-bottom:1px solid var(--line-soft);
     display:flex; align-items:center; gap:16px; flex-wrap:wrap;
   }
@@ -94,7 +94,7 @@
     margin:18px 0 16px; border:1px solid var(--line); border-radius:var(--r);
     background:
       radial-gradient(680px 260px at 4% -20%, rgba(232,179,61,.07), transparent 62%),
-      linear-gradient(180deg,#0D131A,#0A0F14);
+      linear-gradient(180deg,#1C2530,#161E27);
     padding:26px 28px 24px;
     display:grid; grid-template-columns:1fr 220px 300px; gap:30px; align-items:center;
   }
@@ -306,7 +306,7 @@
   .chart.sm{height:212px;}
 
   /* modal */
-  .overlay{position:fixed;inset:0;background:rgba(3,5,7,.82);display:flex;align-items:center;justify-content:center;z-index:70;padding:20px;overflow-y:auto;backdrop-filter:blur(3px);}
+  .overlay{position:fixed;inset:0;background:rgba(8,11,15,.82);display:flex;align-items:center;justify-content:center;z-index:70;padding:20px;overflow-y:auto;backdrop-filter:blur(3px);}
   .modal{background:var(--panel-2);border:1px solid var(--line);border-radius:16px;padding:24px;width:100%;max-width:640px;margin:auto;}
   .modal h3{margin:0;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:1.6px;text-transform:uppercase;display:flex;align-items:center;gap:10px;}
   .modal h3::before{content:"";width:14px;height:2px;background:var(--amber);border-radius:2px;}
@@ -356,6 +356,16 @@ const TOKEN_TYPES = [
   { name:'Platinum', key:'platinum', amount:200000, refundable:false, terms:'Extra ₹1L off on launch day, flat selection at launch rate. Non-refundable.' }
 ];
 const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+/* Slab amounts differ per launch, so TOKEN_TYPES only carries the shape of a slab
+   (its name, colour and whether it is refundable). The rupee value lives on the
+   project and is set in Launch settings. */
+const DEFAULT_SLABS = { Silver:50000, Gold:100000, Platinum:200000 };
+function slabAmount(project, slabName){
+  const key = canonical(TOKEN_TYPES.map(t => t.name), slabName);
+  const v = project && project.tokenSlabs ? num(project.tokenSlabs[key]) : 0;
+  return v || num(DEFAULT_SLABS[key]);
+}
 
 const DEFAULT_PRICES = { '2BHK':6500000, '2.5BHK':7800000, '3BHK':9500000, '3.5BHK':11500000, '4BHK':15000000 };
 const DEFAULT_ASSUMPTIONS = { tokenToBooking: 65 };   // % of tokens that become bookings
@@ -451,15 +461,18 @@ async function loadState(){
       }));
       const unitPrices = Object.assign({}, DEFAULT_PRICES, safeJSON(p.unitPrices, {}));
       const assumptions = Object.assign({}, DEFAULT_ASSUMPTIONS, safeJSON(p.assumptions, {}));
+      const tokenSlabs  = Object.assign({}, DEFAULT_SLABS, safeJSON(p.tokenSlabs, {}));
       return {
         id:p.id, name:p.name, launchDate:p.launchDate, targetDate:p.targetDate,
-        channelTargets, unitPrices, assumptions,
+        channelTargets, unitPrices, assumptions, tokenSlabs,
         targetWalkins: channelTargets.reduce((s,c)=>s+c.targetWalkins,0),
         targetTokens:  channelTargets.reduce((s,c)=>s+c.targetTokens,0)
       };
     });
 
+    const projById = {}; state.projects.forEach(p => projById[p.id] = p);
     state.entries = (data.entries || []).map(e => {
+      const proj = projById[e.projectId];
       const walkinRows = (e.walkins || []).map(w => ({ channel:canonical(CHANNELS, w.channel), count:num(w.count) }));
       return {
         id:e.id, projectId:e.projectId, date:e.date,
@@ -471,7 +484,8 @@ async function loadState(){
           channel:   canonical(CHANNELS, t.channel),
           tokenType: canonical(TOKEN_TYPES.map(x => x.name), t.tokenType),
           salesExecutive: String(t.salesExecutive==null?'':t.salesExecutive).trim(),
-          count: num(t.count)
+          count: num(t.count),
+          amount: slabAmount(proj, t.tokenType)
         })),
         attendance: (e.attendance || []).map(a => ({ salesExecutive:String(a.salesExecutive==null?'':a.salesExecutive).trim(), customersAttended:num(a.customersAttended) }))
       };
@@ -524,7 +538,7 @@ function computeMetrics(project){
   let totalValue = 0, secured = 0, atRisk = 0;
   entries.forEach(e => e.tokens.forEach(t => {
     const info = tokenTypeInfo(t.tokenType);
-    const v = t.count * info.amount;
+    const v = t.count * t.amount;
     totalValue += v;
     if(info.refundable) atRisk += v; else secured += v;
   }));
@@ -598,7 +612,7 @@ function channelStats(project, entries){
     (e.walkinRows||[]).forEach(w => { aw[w.channel] = (aw[w.channel]||0) + w.count; });
     e.tokens.forEach(t => {
       at[t.channel] = (at[t.channel]||0) + t.count;
-      av[t.channel] = (av[t.channel]||0) + t.count * tokenTypeInfo(t.tokenType).amount;
+      av[t.channel] = (av[t.channel]||0) + t.count * t.amount;
     });
   });
   const tg = {}; (project.channelTargets||[]).forEach(c => tg[c.channel] = c);
@@ -637,7 +651,7 @@ function unitStats(project, entries){
   entries.forEach(e => e.tokens.forEach(t => {
     if(!map[t.unitType]) map[t.unitType] = { unitType:t.unitType, tokens:0, tokenValue:0 };
     map[t.unitType].tokens += t.count;
-    map[t.unitType].tokenValue += t.count * tokenTypeInfo(t.tokenType).amount;
+    map[t.unitType].tokenValue += t.count * t.amount;
   }));
   const total = Object.values(map).reduce((s,r)=>s+r.tokens,0);
   return Object.values(map).map(r => ({ ...r,
@@ -651,7 +665,7 @@ function typeStats(entries){
   const rows = TOKEN_TYPES.map(t => ({ name:t.name, key:t.key, refundable:t.refundable, count:0, value:0 }));
   entries.forEach(e => e.tokens.forEach(t => {
     const r = rows.find(x => x.name === t.tokenType);
-    if(r){ r.count += t.count; r.value += t.count * tokenTypeInfo(t.tokenType).amount; }
+    if(r){ r.count += t.count; r.value += t.count * t.amount; }
   }));
   return rows;
 }
@@ -662,7 +676,7 @@ function teamPerformance(entries, projectId, convRate){
   entries.forEach(e => e.tokens.forEach(t => {
     const r = seed((t.salesExecutive || 'Unassigned').trim() || 'Unassigned');
     r.tokens += t.count;
-    r.value  += t.count * tokenTypeInfo(t.tokenType).amount;
+    r.value  += t.count * t.amount;
     r.dates.add(e.date);
     r[tokenTypeInfo(t.tokenType).key] += t.count;
   }));
@@ -895,7 +909,7 @@ function dailySeries(m, n){
     const e = by[d];
     if(!e){ out.tokens.push(null); out.walkins.push(null); out.conv.push(null); out.value.push(cum); continue; }
     const t = e.tokens.reduce((s,x)=>s+x.count,0);
-    cum += e.tokens.reduce((s,x)=>s+x.count*tokenTypeInfo(x.tokenType).amount,0);
+    cum += e.tokens.reduce((s,x)=>s+x.count*x.amount,0);
     out.tokens.push(t); out.walkins.push(e.walkins);
     out.conv.push(e.walkins ? pctOf(t, e.walkins) : null);
     out.value.push(cum);
@@ -1049,7 +1063,7 @@ function gaugeSvg(score){
   const R = 74, C = 2*Math.PI*R, on = C * clamp(score,0,100)/100;
   const col = score >= 70 ? 'var(--mint)' : score >= 40 ? 'var(--amber)' : 'var(--coral)';
   return `<svg width="176" height="176" viewBox="0 0 176 176">
-    <circle cx="88" cy="88" r="${R}" fill="none" stroke="#16202B" stroke-width="11"/>
+    <circle cx="88" cy="88" r="${R}" fill="none" stroke="#26313E" stroke-width="11"/>
     <circle cx="88" cy="88" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round"
       stroke-dasharray="${on.toFixed(1)} ${(C-on).toFixed(1)}" transform="rotate(-90 88 88)"/>
   </svg>`;
@@ -1197,7 +1211,7 @@ function renderCommand(proj, m, ch, wd, units, team){
         <p class="p-note">Saving replaces everything already stored for that date, so log the full day, not the difference.</p>
         <div class="legend">
           ${TOKEN_TYPES.map(t => `<div class="lg ${t.key}">
-            <div class="h"><span class="nm">${t.name}</span><span class="amt mono">${fmtINR(t.amount)}</span></div>
+            <div class="h"><span class="nm">${t.name}</span><span class="amt mono">${fmtINR(slabAmount(proj, t.name))}</span></div>
             <div class="tm">${t.terms}</div></div>`).join('')}
         </div>
         <div id="entryForm"></div>
@@ -1312,10 +1326,10 @@ function renderChannels(proj, m, ch, units){
         <div class="chart"><canvas id="cMix"></canvas></div>
         <div class="scroll" style="margin-top:12px;">
           <table>
-            <thead><tr><th>Slab</th><th class="r">Tokens</th><th class="r">Share</th><th class="r">Value</th><th class="r">Status</th></tr></thead>
+            <thead><tr><th>Slab</th><th class="r">Amount</th><th class="r">Tokens</th><th class="r">Share</th><th class="r">Value</th><th class="r">Status</th></tr></thead>
             <tbody>
               ${typeRows.map(r => `<tr>
-                <td>${r.name}</td><td class="n">${r.count}</td>
+                <td>${r.name}</td><td class="r mono">${fmtINR(slabAmount(proj, r.name))}</td><td class="n">${r.count}</td>
                 <td class="r mono">${pctOf(r.count,totalT).toFixed(0)}%</td>
                 <td class="rt mono">${fmtMoney(r.value)}</td>
                 <td class="r">${r.refundable ? '<span class="pill warn">Refundable</span>' : '<span class="pill good">Locked</span>'}</td>
@@ -1410,7 +1424,7 @@ function renderPattern(proj, m, wd){
           <tbody>
             ${rows.length ? rows.map(e => {
               const t = e.tokens.reduce((s,x)=>s+x.count,0);
-              const v = e.tokens.reduce((s,x)=>s+x.count*tokenTypeInfo(x.tokenType).amount,0);
+              const v = e.tokens.reduce((s,x)=>s+x.count*x.amount,0);
               const par = proj.targetTokens / m.daysTotal;
               const diff = t - par;
               return `<tr>
@@ -1721,7 +1735,7 @@ function drawTokenRows(){
       <div class="field"><label>Channel</label>
         <select data-arr="tokens" data-i="${i}" data-k="channel">${CHANNELS.map(c => `<option ${r.channel===c?'selected':''}>${c}</option>`).join('')}</select></div>
       <div class="field"><label>Slab</label>
-        <select data-arr="tokens" data-i="${i}" data-k="tokenType">${TOKEN_TYPES.map(t => `<option ${r.tokenType===t.name?'selected':''}>${t.name}</option>`).join('')}</select></div>
+        <select data-arr="tokens" data-i="${i}" data-k="tokenType">${TOKEN_TYPES.map(t => `<option value="${t.name}" ${r.tokenType===t.name?'selected':''}>${t.name} — ${fmtINR(slabAmount(activeProject(), t.name))}</option>`).join('')}</select></div>
       <div class="field"><label>Executive</label>${execSelect(i, r.salesExecutive || '', 'salesExecutive', 'tokens')}</div>
       <div class="field" style="max-width:78px;"><label>Count</label>
         <input type="number" min="0" data-arr="tokens" data-i="${i}" data-k="count" value="${r.count}"></div>
@@ -1809,9 +1823,9 @@ function chartTheme(){
   Chart.defaults.font.family = "'Manrope', sans-serif";
   Chart.defaults.font.size = 11.5;
 }
-const GRID = '#141B23';
+const GRID = '#232C38';
 const legendOpts = { labels:{ color:'#6F7B87', boxWidth:10, boxHeight:10, usePointStyle:true, pointStyle:'circle', padding:14 } };
-const tipOpts = { backgroundColor:'#05080B', borderColor:'#1A222C', borderWidth:1, titleColor:'#E6E9EC', bodyColor:'#6F7B87', padding:10, cornerRadius:8, displayColors:true };
+const tipOpts = { backgroundColor:'#10161D', borderColor:'#2C3745', borderWidth:1, titleColor:'#E6E9EC', bodyColor:'#6F7B87', padding:10, cornerRadius:8, displayColors:true };
 
 function drawPace(proj, m){
   const ctx = document.getElementById('cPace'); if(!ctx) return;
@@ -1846,8 +1860,8 @@ function drawPace(proj, m){
     ]},
     options:{ responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
       plugins:{ legend:legendOpts, tooltip:tipOpts },
-      scales:{ x:{ ticks:{ maxTicksLimit:9, color:'#4A555F', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
-               y:{ beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } } } }
+      scales:{ x:{ ticks:{ maxTicksLimit:9, color:'#5F6B78', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
+               y:{ beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } } } }
   });
 }
 
@@ -1866,9 +1880,9 @@ function drawDaily(entries){
     ]},
     options:{ responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
       plugins:{ legend:legendOpts, tooltip:tipOpts },
-      scales:{ x:{ ticks:{ maxTicksLimit:11, color:'#4A555F', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
-        y:{ position:'left', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID }, title:{ display:true, text:'Walk-ins', color:'#4A555F' } },
-        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ display:false }, title:{ display:true, text:'Tokens', color:'#4A555F' } } } }
+      scales:{ x:{ ticks:{ maxTicksLimit:11, color:'#5F6B78', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
+        y:{ position:'left', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID }, title:{ display:true, text:'Walk-ins', color:'#5F6B78' } },
+        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ display:false }, title:{ display:true, text:'Tokens', color:'#5F6B78' } } } }
   });
 }
 
@@ -1888,9 +1902,9 @@ function drawCumulative(proj, m){
     ]},
     options:{ responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
       plugins:{ legend:legendOpts, tooltip:tipOpts },
-      scales:{ x:{ ticks:{ maxTicksLimit:10, color:'#4A555F', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
-        y:{ position:'left', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } },
-        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ display:false } } } }
+      scales:{ x:{ ticks:{ maxTicksLimit:10, color:'#5F6B78', font:{ family:"'IBM Plex Mono', monospace", size:10 } }, grid:{ color:GRID } },
+        y:{ position:'left', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } },
+        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ display:false } } } }
   });
 }
 
@@ -1899,13 +1913,13 @@ function drawWeekday(wd){
   charts.week = new Chart(ctx, {
     data:{ labels:wd.map(r => r.label.slice(0,3)), datasets:[
       { type:'bar', label:'Tokens per day', data:wd.map(r => +r.avgTokens.toFixed(2)), backgroundColor:'#E8B33D', borderRadius:5, yAxisID:'y1' },
-      { type:'bar', label:'Walk-ins per day', data:wd.map(r => +r.avgWalkins.toFixed(2)), backgroundColor:'#1E2A36', borderRadius:5, yAxisID:'y' }
+      { type:'bar', label:'Walk-ins per day', data:wd.map(r => +r.avgWalkins.toFixed(2)), backgroundColor:'#2C3745', borderRadius:5, yAxisID:'y' }
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:legendOpts, tooltip:tipOpts },
       scales:{ x:{ ticks:{ color:'#6F7B87' }, grid:{ display:false } },
-        y:{ position:'left', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } },
-        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ display:false } } } }
+        y:{ position:'left', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } },
+        y1:{ position:'right', beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ display:false } } } }
   });
 }
 
@@ -1914,12 +1928,12 @@ function drawChannel(ch){
   charts.ch = new Chart(ctx, {
     type:'bar',
     data:{ labels:ch.map(c => c.channel), datasets:[
-      { label:'Target', data:ch.map(c => c.targetTokens), backgroundColor:'#1E2A36', borderRadius:5 },
+      { label:'Target', data:ch.map(c => c.targetTokens), backgroundColor:'#2C3745', borderRadius:5 },
       { label:'Achieved', data:ch.map(c => c.achievedTokens), backgroundColor:'#E8B33D', borderRadius:5 }
     ]},
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:legendOpts, tooltip:tipOpts },
-      scales:{ x:{ beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } },
+      scales:{ x:{ beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } },
                y:{ ticks:{ color:'#6F7B87' }, grid:{ display:false } } } }
   });
 }
@@ -1930,7 +1944,7 @@ function drawMix(rows){
   charts.mix = new Chart(ctx, {
     type:'doughnut',
     data:{ labels:rows.map(r => r.name), datasets:[{ data:rows.map(r => r.count),
-      backgroundColor:['#B4C0CB','#D4AF37','#4CC9F0'], borderColor:'#0C1116', borderWidth:3 }] },
+      backgroundColor:['#B4C0CB','#D4AF37','#4CC9F0'], borderColor:'#19212A', borderWidth:3 }] },
     options:{ responsive:true, maintainAspectRatio:false, cutout:'64%',
       plugins:{ legend:{ position:'bottom', ...legendOpts },
         tooltip:{ ...tipOpts, callbacks:{ label: c => `${c.label}: ${c.raw} tokens (${total?Math.round(c.raw/total*100):0}%)` } } } }
@@ -1944,7 +1958,7 @@ function drawUnit(units){
     data:{ labels:units.map(u => u.unitType), datasets:[{ label:'Tokens', data:units.map(u => u.tokens), backgroundColor:'#A78BFA', borderRadius:5 }] },
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{ display:false }, tooltip:tipOpts },
-      scales:{ x:{ beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } },
+      scales:{ x:{ beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } },
                y:{ ticks:{ color:'#6F7B87' }, grid:{ display:false } } } }
   });
 }
@@ -1956,11 +1970,11 @@ function drawTeam(team){
     type:'bar',
     data:{ labels:t.map(x => x.name), datasets:[
       { label:'Tokens', data:t.map(x => x.tokens), backgroundColor:'#E8B33D', borderRadius:5 },
-      { label:'Customers attended', data:t.map(x => x.customers), backgroundColor:'#1E2A36', borderRadius:5 }
+      { label:'Customers attended', data:t.map(x => x.customers), backgroundColor:'#2C3745', borderRadius:5 }
     ]},
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:legendOpts, tooltip:tipOpts },
-      scales:{ x:{ beginAtZero:true, ticks:{ color:'#4A555F' }, grid:{ color:GRID } },
+      scales:{ x:{ beginAtZero:true, ticks:{ color:'#5F6B78' }, grid:{ color:GRID } },
                y:{ ticks:{ color:'#6F7B87' }, grid:{ display:false } } } }
   });
 }
@@ -1972,7 +1986,7 @@ function exportCsv(proj, m){
     const wd = WEEKDAYS[dObj(e.date).getDay()];
     if(!e.tokens.length) rows.push([e.date, wd, '', '', '', '', 0, 0, e.walkins]);
     e.tokens.forEach(t => rows.push([e.date, wd, t.channel, t.unitType, t.tokenType, t.salesExecutive||'Unassigned',
-      t.count, t.count*tokenTypeInfo(t.tokenType).amount, e.walkins]));
+      t.count, t.count*t.amount, e.walkins]));
   });
   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
@@ -1989,6 +2003,7 @@ function renderModal(){
   const d = modal.data;
   const ct = d.channelTargets && d.channelTargets.length ? d.channelTargets : defaultChannelTargets();
   const prices = Object.assign({}, DEFAULT_PRICES, d.unitPrices || {});
+  const slabs  = Object.assign({}, DEFAULT_SLABS, d.tokenSlabs || {});
   const conv = num((d.assumptions || DEFAULT_ASSUMPTIONS).tokenToBooking);
 
   ov.innerHTML = `
@@ -2010,6 +2025,20 @@ function renderModal(){
               <td>${escapeHtml(c.channel)}</td>
               <td><input type="number" min="0" data-ci="${i}" data-cf="targetWalkins" value="${c.targetWalkins}"></td>
               <td><input type="number" min="0" data-ci="${i}" data-cf="targetTokens" value="${c.targetTokens}"></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="sect">Token slab amounts</div>
+      <p class="p-note">What each slab is worth on this launch. Different projects run different amounts, so these are set per launch, not globally. Changing them re-values every token already logged against this launch.</p>
+      <div class="scroll">
+        <table class="compact">
+          <thead><tr><th>Slab</th><th>Amount (₹)</th><th>Terms</th></tr></thead>
+          <tbody>
+            ${TOKEN_TYPES.map(t => `<tr>
+              <td>${t.name}</td>
+              <td><input type="number" min="0" step="5000" data-slab="${t.name}" value="${num(slabs[t.name])}"></td>
+              <td style="white-space:normal;color:var(--muted-2);font-size:11.5px;max-width:280px;">${t.refundable ? 'Refundable' : 'Non-refundable'}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -2057,12 +2086,17 @@ function renderModal(){
       unitPrices[u] = parseFloat((el && el.value) || '0') || 0;
     });
     const assumptions = { tokenToBooking: clamp(parseFloat(document.getElementById('mConv').value || '0'), 0, 100) };
+    const tokenSlabs = {};
+    TOKEN_TYPES.forEach(t => {
+      const el = ov.querySelector(`input[data-slab="${t.name}"]`);
+      tokenSlabs[t.name] = parseFloat((el && el.value) || '0') || 0;
+    });
 
     const isNew = !d.id;
     modal = null;
     withSaving(async () => {
       const res = await apiPost({ action:'saveProject', project:{ id:d.id, name, launchDate, targetDate,
-        targetWalkinsByChannel, targetTokensByChannel, unitPrices, assumptions } });
+        targetWalkinsByChannel, targetTokensByChannel, unitPrices, assumptions, tokenSlabs } });
       if(isNew && res && res.id) state.activeProjectId = res.id;
       await loadState();
     });
