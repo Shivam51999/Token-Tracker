@@ -495,11 +495,19 @@ function safeJSON(s, fallback){ try { const v = typeof s === 'string' ? JSON.par
 
 /* -------------------------------------------------------------- API layer */
 async function fetchWithRetry(url, opts, attempts = 3, delayMs = 900){
-  let lastErr;
+  let lastErr, lastRes;
   for(let i = 0; i < attempts; i++){
-    try { return await fetch(url, opts); }
-    catch(err){ lastErr = err; if(i < attempts-1) await new Promise(r => setTimeout(r, delayMs*(i+1))); }
+    try {
+      const res = await fetch(url, opts);
+      if(res.ok) return res;
+      // Non-2xx (e.g. a transient 404 while Apps Script's container recycles) —
+      // treat it like a retryable failure instead of surfacing it immediately.
+      lastRes = res;
+      lastErr = new Error('HTTP ' + res.status);
+    } catch(err){ lastErr = err; }
+    if(i < attempts-1) await new Promise(r => setTimeout(r, delayMs*(i+1)));
   }
+  if(lastRes) return lastRes; // let the caller report the final status after retries are exhausted
   throw new Error(`Network request failed after ${attempts} attempts: ${lastErr.message || lastErr}`);
 }
 async function apiGet(){
